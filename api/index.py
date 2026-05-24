@@ -18,9 +18,12 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import (CallbackQuery, FSInputFile, InlineKeyboardButton,
-                           InlineKeyboardMarkup, Message, Update)
+                           InlineKeyboardMarkup, Message, Update, WebAppInfo)
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, Header, HTTPException, Depends
+from fastapi.responses import HTMLResponse, FileResponse
+from pydantic import BaseModel
+from typing import Optional
 
 # ───────────────────────────── КОНФИГ ─────────────────────────────
 BOT_TOKEN = "8907031122:AAGms-t_ndqjcYhU9OlOIf-rECG7KWrzZw8"
@@ -115,7 +118,13 @@ class ReportDay(StatesGroup): day = State()
 def kb(rows): return InlineKeyboardMarkup(inline_keyboard=rows)
 def btn(text, data): return InlineKeyboardButton(text=text, callback_data=data)
 def main_menu(u):
-    rows = [[btn("📋 Компании-клиенты", "co:list:0")], [btn("➕ Новая компания", "co:new")], [btn("📊 Отчёты", "rep:menu")]]
+    web_url = os.environ.get("WEB_APP_URL", "https://kazoc-tgbot.vercel.app")
+    rows = [
+        [InlineKeyboardButton(text="📱 Открыть Web App", web_app=WebAppInfo(url=web_url))],
+        [btn("📋 Компании-клиенты", "co:list:0")],
+        [btn("➕ Новая компания", "co:new")],
+        [btn("📊 Отчёты", "rep:menu")]
+    ]
     if is_admin(u): rows.append([btn("🔐 Админка", "adm:auth")])
     return kb(rows)
 def period_kb(scope, sid, back):
@@ -559,6 +568,318 @@ async def fallback(m: Message):
     await m.answer("Меню:", reply_markup=main_menu(u))
 
 # ──────────────────────────── VERCEL WEBHOOK ─────────────────────────
+# ──────────────────────────── VERCEL WEBHOOK & WEB APP ENDPOINTS ─────────────────────────
+
+@app.get("/", response_class=HTMLResponse)
+@app.get("/app", response_class=HTMLResponse)
+async def get_web_app():
+    import os
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    html_path = os.path.join(current_dir, "templates", "index.html")
+    try:
+        with open(html_path, "r", encoding="utf-8") as f:
+            html_content = f.read()
+        return html_content
+    except Exception as e:
+        return HTMLResponse(content=f"<h3>Ошибка загрузки Web App: {str(e)}</h3>", status_code=500)
+
+async def get_current_user(
+    x_telegram_user_id: Optional[str] = Header(None),
+    tg_id: Optional[str] = None
+):
+    await init_db()
+    uid = x_telegram_user_id or tg_id
+    if not uid:
+        raise HTTPException(status_code=400, detail="Missing Telegram User ID (header or query param)")
+    try:
+        tg_id_val = int(uid)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid Telegram User ID format")
+    
+    u = await get_user(tg_id_val)
+    if not u or u["active"] != 1:
+        raise HTTPException(status_code=403, detail="Доступ запрещён")
+    return u
+
+class CompanyPayload(BaseModel):
+    name: str
+    phone: Optional[str] = None
+    address: Optional[str] = None
+    contact: Optional[str] = None
+    notes: Optional[str] = None
+
+class DealPayload(BaseModel):
+    company_id: int
+    period_type: str
+    city: str
+    work_date: str
+    deadline: Optional[str] = None
+    hours: float = 0.0
+    planned_count: int = 0
+    position: str
+    work_type: Optional[str] = None
+    rate: float = 0.0
+    client_pay: float = 0.0
+    worker_pay: float = 0.0
+    company_get: float = 0.0
+    worker_names: Optional[str] = None
+
+class CloseDealPayload(BaseModel):
+    final_workers: int
+    final_amount: float
+
+class ManagerPayload(BaseModel):
+    telegram_id: int
+    name: str
+
+class RenamePayload(BaseModel):
+    name: str
+
+@app.post("/api/auth")
+async def api_auth(u = Depends(get_current_user)):
+    return {"status": "ok", "user": dict(u)}
+
+@app.get("/api/dashboard/stats")
+async def api_dashboard_stats(u = Depends(get_current_user)):
+    async with pool.acquire() as conn:
+        if is_admin(u):
+            revenue = await conn.fetchval("SELECT SUM(final_amount) FROM orders WHERE status=$1", ST_WIN)
+            active_deals = await conn.fetchval("SELECT COUNT(*) FROM orders WHERE status=$1", ST_WORK)
+        else:
+            revenue = await conn.fetchval("SELECT SUM(final_amount) FROM orders WHERE status=$1 AND manager_id=$2", ST_WIN, u["id"])
+            active_deals = await conn.fetchval("SELECT COUNT(*) FROM orders WHERE status=$1 AND manager_id=$2", ST_WORK, u["id"])
+    return {"revenue": float(revenue or 0.0), "active_deals": int(active_deals or 0)}
+
+@app.get("/api/companies")
+async def api_get_companies(u = Depends(get_current_user)):
+    cos = await companies_for(u)
+    return {"companies": [dict(c) for c in cos]}
+
+@app.get("/api/companies/{id}")
+async def api_get_company_detail(id: int, u = Depends(get_current_user)):
+    c = await get_company(id)
+    if not c or not can_access_company(u, c):
+        raise HTTPException(status_code=403, detail="Нет доступа")
+    return {"company": dict(c)}
+
+@app.post("/api/companies")
+async def api_create_company(payload: CompanyPayload, u = Depends(get_current_user)):
+    async with pool.acquire() as conn:
+        cid = await conn.fetchval(
+            "INSERT INTO companies(manager_id, name, phone, address, contact, notes, created_at) VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING id",
+            u["id"], payload.name, payload.phone, payload.address, payload.contact, payload.notes, datetime.now().isoformat()
+        )
+    c = await get_company(cid)
+    return {"status": "ok", "company": dict(c)}
+
+@app.put("/api/companies/{id}")
+async def api_update_company(id: int, payload: CompanyPayload, u = Depends(get_current_user)):
+    c = await get_company(id)
+    if not c or not can_access_company(u, c):
+        raise HTTPException(status_code=403, detail="Нет доступа")
+    async with pool.acquire() as conn:
+        await conn.execute(
+            "UPDATE companies SET name=$1, phone=$2, address=$3, contact=$4, notes=$5 WHERE id=$6",
+            payload.name, payload.phone, payload.address, payload.contact, payload.notes, id
+        )
+    updated = await get_company(id)
+    return {"status": "ok", "company": dict(updated)}
+
+@app.delete("/api/companies/{id}")
+async def api_delete_company(id: int, u = Depends(get_current_user)):
+    c = await get_company(id)
+    if not c or not can_access_company(u, c):
+        raise HTTPException(status_code=403, detail="Нет доступа")
+    async with pool.acquire() as conn:
+        await conn.execute("DELETE FROM orders WHERE company_id=$1", id)
+        await conn.execute("DELETE FROM companies WHERE id=$1", id)
+    return {"status": "ok", "message": "Компания успешно удалена"}
+
+@app.get("/api/companies/{id}/deals")
+async def api_get_company_deals(id: int, type: str = "current", u = Depends(get_current_user)):
+    c = await get_company(id)
+    if not c or not can_access_company(u, c):
+        raise HTTPException(status_code=403, detail="Нет доступа")
+    async with pool.acquire() as conn:
+        ds = await conn.fetch(
+            "SELECT * FROM orders WHERE company_id=$1 AND period_type=$2 ORDER BY work_date DESC, id DESC LIMIT 50",
+            id, type
+        )
+    return {"deals": [dict(d) for d in ds]}
+
+@app.get("/api/deals/{id}")
+async def api_get_deal_detail(id: int, u = Depends(get_current_user)):
+    d = await get_deal(id)
+    if not d or not can_access_deal(u, d):
+        raise HTTPException(status_code=403, detail="Нет доступа")
+    return {"deal": dict(d)}
+
+@app.post("/api/deals")
+async def api_create_deal(payload: DealPayload, u = Depends(get_current_user)):
+    w_date = parse_date(payload.work_date)
+    if not w_date:
+        raise HTTPException(status_code=400, detail="Неверный формат даты. Используйте ДД.ММ.ГГГГ")
+    
+    async with pool.acquire() as conn:
+        did = await conn.fetchval(
+            """INSERT INTO orders(company_id, manager_id, period_type, city, work_date, deadline, hours, position, planned_count, work_type, rate, client_pay, worker_pay, company_get, worker_names, status, created_at)
+               VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17) RETURNING id""",
+            payload.company_id, u["id"], payload.period_type, payload.city, w_date, payload.deadline, payload.hours,
+            payload.position, payload.planned_count, payload.work_type, payload.rate, payload.client_pay,
+            payload.worker_pay, payload.company_get, payload.worker_names, ST_ACCEPTED, datetime.now().isoformat()
+        )
+    d = await get_deal(did)
+    return {"status": "ok", "deal": dict(d)}
+
+@app.put("/api/deals/{id}")
+async def api_update_deal(id: int, payload: DealPayload, u = Depends(get_current_user)):
+    d = await get_deal(id)
+    if not d or not can_edit_deal(u, d):
+        raise HTTPException(status_code=403, detail="Нельзя редактировать заявку")
+    w_date = parse_date(payload.work_date)
+    if not w_date:
+        raise HTTPException(status_code=400, detail="Неверный формат даты. Используйте ДД.ММ.ГГГГ")
+        
+    async with pool.acquire() as conn:
+        await conn.execute(
+            """UPDATE orders SET period_type=$1, city=$2, work_date=$3, deadline=$4, hours=$5, position=$6, planned_count=$7, work_type=$8, rate=$9, client_pay=$10, worker_pay=$11, company_get=$12, worker_names=$13 WHERE id=$14""",
+            payload.period_type, payload.city, w_date, payload.deadline, payload.hours, payload.position,
+            payload.planned_count, payload.work_type, payload.rate, payload.client_pay, payload.worker_pay,
+            payload.company_get, payload.worker_names, id
+        )
+    updated = await get_deal(id)
+    return {"status": "ok", "deal": dict(updated)}
+
+@app.patch("/api/deals/{id}/status")
+async def api_update_deal_status(id: int, action: str, u = Depends(get_current_user)):
+    d = await get_deal(id)
+    if not d or not can_access_deal(u, d):
+        raise HTTPException(status_code=403, detail="Нет доступа")
+    new_status = {"work": ST_WORK, "loss": ST_LOSS, "reopen": ST_WORK}.get(action)
+    if not new_status:
+        raise HTTPException(status_code=400, detail="Неверное действие со статусом")
+    async with pool.acquire() as conn:
+        await conn.execute("UPDATE orders SET status=$1 WHERE id=$2", new_status, id)
+    return {"status": f"Статус обновлён на «{new_status}»"}
+
+@app.post("/api/deals/{id}/close")
+async def api_close_deal(id: int, payload: CloseDealPayload, u = Depends(get_current_user)):
+    d = await get_deal(id)
+    if not d or not can_access_deal(u, d):
+        raise HTTPException(status_code=403, detail="Нет доступа")
+    async with pool.acquire() as conn:
+        await conn.execute("UPDATE orders SET status=$1, final_workers=$2, final_amount=$3 WHERE id=$4", ST_WIN, payload.final_workers, payload.final_amount, id)
+    return {"status": "Сделка успешно закрыта"}
+
+@app.delete("/api/deals/{id}")
+async def api_delete_deal(id: int, u = Depends(get_current_user)):
+    d = await get_deal(id)
+    if not d or not can_edit_deal(u, d):
+        raise HTTPException(status_code=403, detail="Нет прав на удаление")
+    async with pool.acquire() as conn:
+        await conn.execute("DELETE FROM orders WHERE id=$1", id)
+    return {"status": "ok", "message": "Заявка успешно удалена"}
+
+@app.get("/api/reports/download")
+async def api_download_report(scope: str, sid: int, period: str, day: Optional[str] = None, u = Depends(get_current_user)):
+    if scope in ("all", "mgr") and not is_admin(u):
+        raise HTTPException(status_code=403, detail="Нет доступа к этой области отчёта")
+    if scope == "comp" and not can_access_company(u, await get_company(sid)):
+        raise HTTPException(status_code=403, detail="Нет доступа к компании")
+    
+    d_from, d_to = (day, day) if period == "custom" else period_range(period)
+    plabel = f"День {fmt_date(day)}" if period == "custom" else PERIODS[period][0]
+    
+    rows = await fetch_orders(scope, sid, d_from, d_to)
+    if not rows:
+        raise HTTPException(status_code=404, detail="Нет данных для отчета в выбранном периоде")
+    
+    if scope == "all": title = "Общий отчёт"
+    elif scope == "comp": title = f"Отчёт: {(await get_company(sid))['name']}"
+    elif scope == "mgr":
+        async with pool.acquire() as conn:
+            mn = await conn.fetchrow("SELECT name,telegram_id FROM managers WHERE id=$1", sid)
+        title = f"Менеджер: {mn['name'] or mn['telegram_id']}"
+    else: title = "Отчёт по моим компаниям"
+
+    path = build_excel(rows, title, plabel)
+    return FileResponse(path, filename=os.path.basename(path), media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
+@app.post("/api/reports/send-bot")
+async def api_send_bot_report(scope: str, sid: int, period: str, day: Optional[str] = None, u = Depends(get_current_user)):
+    if scope in ("all", "mgr") and not is_admin(u):
+        raise HTTPException(status_code=403, detail="Нет доступа к этой области отчёта")
+    if scope == "comp" and not can_access_company(u, await get_company(sid)):
+        raise HTTPException(status_code=403, detail="Нет доступа к компании")
+        
+    d_from, d_to = (day, day) if period == "custom" else period_range(period)
+    plabel = f"День {fmt_date(day)}" if period == "custom" else PERIODS[period][0]
+    
+    rows = await fetch_orders(scope, sid, d_from, d_to)
+    if not rows:
+        raise HTTPException(status_code=404, detail="Нет данных для отчета в выбранном периоде")
+    
+    if scope == "all": title = "Общий отчёт"
+    elif scope == "comp": title = f"Отчёт: {(await get_company(sid))['name']}"
+    elif scope == "mgr":
+        async with pool.acquire() as conn:
+            mn = await conn.fetchrow("SELECT name,telegram_id FROM managers WHERE id=$1", sid)
+        title = f"Менеджер: {mn['name'] or mn['telegram_id']}"
+    else: title = "Отчёт по моим компаниям"
+
+    path = build_excel(rows, title, plabel)
+    try:
+        await bot.send_document(chat_id=u["telegram_id"], document=FSInputFile(path), caption=f"📊 {title}\nПериод: {plabel}\nЗаявок: {len(rows)}")
+        return {"status": "Отчёт успешно отправлен в Telegram!"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Не удалось отправить файл: {str(e)}")
+
+@app.get("/api/admin/managers")
+async def api_get_managers(u = Depends(get_current_user)):
+    if not is_admin(u):
+        raise HTTPException(status_code=403, detail="Только для администратора")
+    async with pool.acquire() as conn:
+        ms = await conn.fetch("SELECT * FROM managers ORDER BY role DESC, name")
+    return {"managers": [dict(m) for m in ms]}
+
+@app.post("/api/admin/managers")
+async def api_create_manager(payload: ManagerPayload, u = Depends(get_current_user)):
+    if not is_admin(u):
+        raise HTTPException(status_code=403, detail="Только для администратора")
+    try:
+        async with pool.acquire() as conn:
+            await conn.execute(
+                "INSERT INTO managers(telegram_id, name, role, active, created_at) VALUES($1,$2,'manager',1,$3)",
+                payload.telegram_id, payload.name, datetime.now().isoformat()
+            )
+        return {"status": "Менеджер успешно добавлен"}
+    except asyncpg.exceptions.UniqueViolationError:
+        raise HTTPException(status_code=400, detail="Этот Telegram ID уже зарегистрирован")
+
+@app.put("/api/admin/managers/{id}/toggle")
+async def api_toggle_manager(id: int, val: int, u = Depends(get_current_user)):
+    if not is_admin(u):
+        raise HTTPException(status_code=403, detail="Только для администратора")
+    async with pool.acquire() as conn:
+        await conn.execute("UPDATE managers SET active=$1 WHERE id=$2 AND role!='admin'", val, id)
+    return {"status": "Статус менеджера изменен"}
+
+@app.put("/api/admin/managers/{id}/role")
+async def api_role_manager(id: int, role: str, u = Depends(get_current_user)):
+    if not is_admin(u):
+        raise HTTPException(status_code=403, detail="Только для администратора")
+    async with pool.acquire() as conn:
+        await conn.execute("UPDATE managers SET role=$1, active=1 WHERE id=$2", role, id)
+    return {"status": "Роль менеджера изменена"}
+
+@app.put("/api/admin/managers/{id}/rename")
+async def api_rename_manager(id: int, payload: RenamePayload, u = Depends(get_current_user)):
+    if not is_admin(u):
+        raise HTTPException(status_code=403, detail="Только для администратора")
+    async with pool.acquire() as conn:
+        await conn.execute("UPDATE managers SET name=$1 WHERE id=$2", payload.name, id)
+    return {"status": "Имя менеджера успешно обновлено"}
+
 @app.post("/api/webhook")
 async def telegram_webhook(request: Request):
     await init_db()
