@@ -3,3 +3,4 @@ openpyxl>=3.1
 asyncpg
 fastapi
 uvicorn
+httpx

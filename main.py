@@ -18,7 +18,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import (CallbackQuery, FSInputFile, InlineKeyboardButton,
-                           InlineKeyboardMarkup, Message)
+                           InlineKeyboardMarkup, Message, WebAppInfo)
 
 # ───────────────────────────── КОНФИГ ─────────────────────────────
 BOT_TOKEN = "8907031122:AAGms-t_ndqjcYhU9OlOIf-rECG7KWrzZw8"
@@ -76,7 +76,11 @@ async def init_db():
             position TEXT, planned_count INTEGER DEFAULT 0, work_type TEXT, rate REAL DEFAULT 0, 
             client_pay REAL DEFAULT 0, worker_pay REAL DEFAULT 0, company_get REAL DEFAULT 0,
             worker_names TEXT, status TEXT DEFAULT 'Принято', final_workers INTEGER DEFAULT 0, 
-            final_amount REAL DEFAULT 0, notes TEXT, created_at TEXT)""")
+            final_amount REAL DEFAULT 0, notes TEXT, bitrix_id INTEGER, created_at TEXT)""")
+        try:
+            await conn.execute("ALTER TABLE orders ADD COLUMN IF NOT EXISTS bitrix_id INTEGER")
+        except Exception:
+            pass
         
         for tid in ADMIN_IDS:
             await conn.execute("""INSERT INTO managers(telegram_id, name, role, active, created_at)
@@ -147,7 +151,13 @@ def kb(rows): return InlineKeyboardMarkup(inline_keyboard=rows)
 def btn(text, data): return InlineKeyboardButton(text=text, callback_data=data)
 
 def main_menu(u):
-    rows = [[btn("📋 Компании-клиенты", "co:list:0")], [btn("➕ Новая компания", "co:new")], [btn("📊 Отчёты", "rep:menu")]]
+    web_url = os.environ.get("WEB_APP_URL", "https://kazoc-tgbot.vercel.app")
+    rows = [
+        [InlineKeyboardButton(text="📱 Открыть Web App", web_app=WebAppInfo(url=web_url))],
+        [btn("📋 Компании-клиенты", "co:list:0")],
+        [btn("➕ Новая компания", "co:new")],
+        [btn("📊 Отчёты", "rep:menu")]
+    ]
     if is_admin(u): rows.append([btn("🔐 Админка", "adm:auth")])
     return kb(rows)
 
@@ -172,6 +182,70 @@ async def get_company(cid):
 
 async def get_deal(did):
     async with pool.acquire() as conn: return await conn.fetchrow("SELECT * FROM orders WHERE id=$1", did)
+
+# ───────────────────────────── BITRIX24 INTEGRATION ───────────────────
+BITRIX_URL = os.environ.get("BITRIX_URL", "https://b24-zjchkj.bitrix24.kz/rest/1/jaf58v0tf4ioi6kx/")
+
+async def sync_deal_to_bitrix(deal_id: int):
+    import httpx
+    try:
+        deal = await get_deal(deal_id)
+        if not deal: return
+        company = await get_company(deal["company_id"])
+        co_name = company["name"] if company else "Неизвестно"
+        
+        async with pool.acquire() as conn:
+            mgr = await conn.fetchrow("SELECT name FROM managers WHERE id=$1", deal["manager_id"])
+        mgr_name = mgr["name"] if mgr else "Неизвестно"
+        
+        stage_map = {ST_ACCEPTED: "NEW", ST_WORK: "PREPARATION", ST_WIN: "WON", ST_LOSS: "LOSE"}
+        stage_id = stage_map.get(deal["status"], "NEW")
+        
+        comments = f"""
+        <b>Канал:</b> KazOC CRM Bot<br>
+        <b>Компания:</b> {esc(co_name)}<br>
+        <b>Позиция:</b> {esc(deal['position'])}<br>
+        <b>Дата смены:</b> {fmt_date(deal['work_date'])}<br>
+        <b>Время/Срок:</b> {esc(deal['deadline'])}<br>
+        <b>План работников:</b> {deal['planned_count']} чел<br>
+        <b>Ставка/час:</b> {deal['rate']} ₸<br>
+        <b>Платят за смену (клиент):</b> {deal['client_pay']} ₸<br>
+        <b>Каждому рабочему:</b> {deal['worker_pay']} ₸<br>
+        <b>Получает компания:</b> {deal['company_get']} ₸<br>
+        <b>Назначенные рабочие:</b> {esc(deal['worker_names'])}<br>
+        <b>Менеджер:</b> {esc(mgr_name)}<br>
+        """
+        if deal["status"] == ST_WIN:
+            comments += f"""
+            <br><b>🏁 Результаты закрытия:</b><br>
+            <b>Фактически вышло рабочих:</b> {deal['final_workers']} чел<br>
+            <b>Фактическая сумма оплаты:</b> {deal['final_amount']} ₸<br>
+            """
+        
+        payload = {
+            "fields": {
+                "TITLE": f"[KazOC] {esc(deal['position'])} - {esc(co_name)}",
+                "STAGE_ID": stage_id,
+                "OPPORTUNITY": deal["final_amount"] if deal["status"] == ST_WIN else deal["client_pay"],
+                "CURRENCY_ID": "KZT",
+                "COMMENTS": comments
+            }
+        }
+        
+        async with httpx.AsyncClient() as client:
+            if deal.get("bitrix_id"):
+                payload["id"] = deal["bitrix_id"]
+                await client.post(f"{BITRIX_URL}crm.deal.update.json", json=payload)
+            else:
+                res = await client.post(f"{BITRIX_URL}crm.deal.add.json", json=payload)
+                if res.status_code == 200:
+                    rdata = res.json()
+                    if "result" in rdata:
+                        bid = int(rdata["result"])
+                        async with pool.acquire() as conn:
+                            await conn.execute("UPDATE orders SET bitrix_id=$1 WHERE id=$2", bid, deal_id)
+    except Exception as e:
+        logging.error(f"Bitrix24 sync error: {e}")
 
 def can_access_company(u, c): return c and (is_admin(u) or c["manager_id"] == u["id"])
 def can_access_deal(u, o): return o and (is_admin(u) or o["manager_id"] == u["id"])
@@ -427,6 +501,7 @@ async def d_save(m: Message, state: FSMContext):
     d = await state.get_data(); u = await get_user(m.from_user.id); names = None if m.text.strip() in ("-", "") else m.text.strip()
     async with pool.acquire() as conn:
         did = await conn.fetchval("""INSERT INTO orders(company_id,manager_id,period_type,city,work_date,deadline,hours,position,planned_count,work_type,rate,client_pay,worker_pay,company_get,worker_names,status,created_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17) RETURNING id""", d["company_id"], u["id"], d["period_type"], d["city"], d["work_date"], d["deadline"], d["hours"], d["position"], d["planned_count"], d["work_type"], d["rate"], d["client_pay"], d["worker_pay"], d["company_get"], names, ST_ACCEPTED, datetime.now().isoformat())
+    asyncio.create_task(sync_deal_to_bitrix(did))
     await state.clear()
     text, markup = await render_deal(await get_deal(did), u)
     await m.answer("✅ Заявка создана.\n\n" + text, reply_markup=markup)
@@ -460,6 +535,7 @@ async def deal_status(cq: CallbackQuery, state: FSMContext):
         await state.clear(); await state.update_data(deal_id=did); await state.set_state(CompleteForm.final_workers); await cq.message.answer("🏁 Сколько работников вышло?"); return await cq.answer()
     new = {"work": ST_WORK, "loss": ST_LOSS, "reopen": ST_WORK}[action]
     async with pool.acquire() as conn: await conn.execute("UPDATE orders SET status=$1 WHERE id=$2", new, did)
+    asyncio.create_task(sync_deal_to_bitrix(did))
     await cq.answer("Статус обновлён"); text, markup = await render_deal(await get_deal(did), u); await safe_edit(cq, text, markup)
 
 @dp.message(CompleteForm.final_workers)
@@ -468,6 +544,7 @@ async def cf_workers(m: Message, state: FSMContext): await state.update_data(fin
 async def cf_amount(m: Message, state: FSMContext):
     d = await state.get_data(); u = await get_user(m.from_user.id)
     async with pool.acquire() as conn: await conn.execute("UPDATE orders SET status=$1, final_workers=$2, final_amount=$3 WHERE id=$4", ST_WIN, d["final_workers"], parse_num(m.text), d["deal_id"])
+    asyncio.create_task(sync_deal_to_bitrix(d["deal_id"]))
     await state.clear(); text, markup = await render_deal(await get_deal(d["deal_id"]), u); await m.answer("✅ Завершено.\n\n" + text, reply_markup=markup)
 
 @dp.callback_query(F.data.startswith("deal:edit:"))
@@ -502,6 +579,7 @@ async def edit_field_save(m: Message, state: FSMContext):
     elif ftype == "num": val = parse_num(m.text)
     else: val = None if m.text.strip() in ("-", "") else m.text.strip()
     async with pool.acquire() as conn: await conn.execute(f"UPDATE orders SET {key}=$1 WHERE id=$2", val, d["deal_id"])
+    asyncio.create_task(sync_deal_to_bitrix(d["deal_id"]))
     await state.clear(); text, markup = await render_deal(await get_deal(d["deal_id"]), u); await m.answer("✅ Обновлено.\n\n" + text, reply_markup=markup)
 
 @dp.callback_query(F.data.startswith("deal:rm:"))
@@ -514,6 +592,13 @@ async def deal_rm(cq: CallbackQuery):
 async def deal_rmok(cq: CallbackQuery):
     u = await get_user(cq.from_user.id); did = int(cq.data.split(":")[2]); o = await get_deal(did)
     if not can_edit_deal(u, o): return await cq.answer("Нельзя", show_alert=True)
+    if o.get("bitrix_id"):
+        try:
+            import httpx
+            async with httpx.AsyncClient() as client:
+                await client.post(f"{BITRIX_URL}crm.deal.delete.json", json={"id": o["bitrix_id"]})
+        except Exception:
+            pass
     async with pool.acquire() as conn: await conn.execute("DELETE FROM orders WHERE id=$1", did)
     await safe_edit(cq, "🗑 Удалена.", kb([[btn("⬅️ К компании", f"co:view:{o['company_id']}")]])); await cq.answer()
 
@@ -694,7 +779,7 @@ async def fallback(m: Message):
 
 async def startup():
     global pool
-    pool = await asyncpg.create_pool(DATABASE_URL)
+    pool = await asyncpg.create_pool(DATABASE_URL, statement_cache_size=0)
     await init_db()
 
 async def main():
