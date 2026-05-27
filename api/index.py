@@ -104,11 +104,18 @@ async def sync_company_to_bitrix(company_id: int) -> int:
         
         async with httpx.AsyncClient() as client:
             if company.get("bitrix_id"):
-                payload["id"] = company["bitrix_id"]
-                await client.post(f"{BITRIX_URL}crm.company.update.json", json=payload)
+                await client.post(f"{BITRIX_URL}crm.company.update.json", json={
+                    "id": company["bitrix_id"],
+                    "ID": company["bitrix_id"],
+                    "fields": payload["fields"],
+                    "FIELDS": payload["fields"]
+                })
                 return company["bitrix_id"]
             else:
-                res = await client.post(f"{BITRIX_URL}crm.company.add.json", json=payload)
+                res = await client.post(f"{BITRIX_URL}crm.company.add.json", json={
+                    "fields": payload["fields"],
+                    "FIELDS": payload["fields"]
+                })
                 if res.status_code == 200:
                     rdata = res.json()
                     if "result" in rdata:
@@ -179,10 +186,17 @@ async def sync_deal_to_bitrix(deal_id: int):
             
         async with httpx.AsyncClient() as client:
             if deal.get("bitrix_id"):
-                payload["id"] = deal["bitrix_id"]
-                await client.post(f"{BITRIX_URL}crm.deal.update.json", json=payload)
+                await client.post(f"{BITRIX_URL}crm.deal.update.json", json={
+                    "id": deal["bitrix_id"],
+                    "ID": deal["bitrix_id"],
+                    "fields": payload["fields"],
+                    "FIELDS": payload["fields"]
+                })
             else:
-                res = await client.post(f"{BITRIX_URL}crm.deal.add.json", json=payload)
+                res = await client.post(f"{BITRIX_URL}crm.deal.add.json", json={
+                    "fields": payload["fields"],
+                    "FIELDS": payload["fields"]
+                })
                 if res.status_code == 200:
                     rdata = res.json()
                     if "result" in rdata:
@@ -625,6 +639,16 @@ async def deal_rm(cq: CallbackQuery):
 async def deal_rmok(cq: CallbackQuery):
     u = await get_user(cq.from_user.id); did = int(cq.data.split(":")[2]); o = await get_deal(did)
     if not can_edit_deal(u, o): return await cq.answer("Нельзя", show_alert=True)
+    if o.get("bitrix_id"):
+        try:
+            import httpx
+            async with httpx.AsyncClient() as client:
+                await client.post(f"{BITRIX_URL}crm.deal.delete.json", json={
+                    "id": o["bitrix_id"],
+                    "ID": o["bitrix_id"]
+                })
+        except Exception:
+            pass
     async with pool.acquire() as conn: await conn.execute("DELETE FROM orders WHERE id=$1", did)
     await safe_edit(cq, "🗑 Удалена.", kb([[btn("⬅️ К компании", f"co:view:{o['company_id']}")]])); await cq.answer()
 
@@ -902,7 +926,10 @@ async def api_delete_company(id: int, u = Depends(get_current_user)):
     if c.get("bitrix_id"):
         try:
             async with httpx.AsyncClient() as client:
-                await client.post(f"{BITRIX_URL}crm.company.delete.json", json={"id": c["bitrix_id"]})
+                await client.post(f"{BITRIX_URL}crm.company.delete.json", json={
+                    "id": c["bitrix_id"],
+                    "ID": c["bitrix_id"]
+                })
         except Exception:
             pass
     async with pool.acquire() as conn:
@@ -999,7 +1026,10 @@ async def api_delete_deal(id: int, u = Depends(get_current_user)):
     if d.get("bitrix_id"):
         try:
             async with httpx.AsyncClient() as client:
-                await client.post(f"{BITRIX_URL}crm.deal.delete.json", json={"id": d["bitrix_id"]})
+                await client.post(f"{BITRIX_URL}crm.deal.delete.json", json={
+                    "id": d["bitrix_id"],
+                    "ID": d["bitrix_id"]
+                })
         except Exception:
             pass
     async with pool.acquire() as conn:

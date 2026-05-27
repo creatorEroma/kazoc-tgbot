@@ -214,11 +214,18 @@ async def sync_company_to_bitrix(company_id: int) -> int:
         
         async with httpx.AsyncClient() as client:
             if company.get("bitrix_id"):
-                payload["id"] = company["bitrix_id"]
-                await client.post(f"{BITRIX_URL}crm.company.update.json", json=payload)
+                await client.post(f"{BITRIX_URL}crm.company.update.json", json={
+                    "id": company["bitrix_id"],
+                    "ID": company["bitrix_id"],
+                    "fields": payload["fields"],
+                    "FIELDS": payload["fields"]
+                })
                 return company["bitrix_id"]
             else:
-                res = await client.post(f"{BITRIX_URL}crm.company.add.json", json=payload)
+                res = await client.post(f"{BITRIX_URL}crm.company.add.json", json={
+                    "fields": payload["fields"],
+                    "FIELDS": payload["fields"]
+                })
                 if res.status_code == 200:
                     rdata = res.json()
                     if "result" in rdata:
@@ -289,10 +296,17 @@ async def sync_deal_to_bitrix(deal_id: int):
             
         async with httpx.AsyncClient() as client:
             if deal.get("bitrix_id"):
-                payload["id"] = deal["bitrix_id"]
-                await client.post(f"{BITRIX_URL}crm.deal.update.json", json=payload)
+                await client.post(f"{BITRIX_URL}crm.deal.update.json", json={
+                    "id": deal["bitrix_id"],
+                    "ID": deal["bitrix_id"],
+                    "fields": payload["fields"],
+                    "FIELDS": payload["fields"]
+                })
             else:
-                res = await client.post(f"{BITRIX_URL}crm.deal.add.json", json=payload)
+                res = await client.post(f"{BITRIX_URL}crm.deal.add.json", json={
+                    "fields": payload["fields"],
+                    "FIELDS": payload["fields"]
+                })
                 if res.status_code == 200:
                     rdata = res.json()
                     if "result" in rdata:
@@ -659,7 +673,10 @@ async def deal_rmok(cq: CallbackQuery):
         try:
             import httpx
             async with httpx.AsyncClient() as client:
-                await client.post(f"{BITRIX_URL}crm.deal.delete.json", json={"id": o["bitrix_id"]})
+                await client.post(f"{BITRIX_URL}crm.deal.delete.json", json={
+                    "id": o["bitrix_id"],
+                    "ID": o["bitrix_id"]
+                })
         except Exception:
             pass
     async with pool.acquire() as conn: await conn.execute("DELETE FROM orders WHERE id=$1", did)
