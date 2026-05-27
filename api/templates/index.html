@@ -32,6 +32,8 @@
       --status-accepted-bg: rgba(255, 149, 0, 0.12);
       --status-work: #0071e3;
       --status-work-bg: rgba(0, 113, 227, 0.12);
+      --status-reopen: #af52de;
+      --status-reopen-bg: rgba(175, 82, 222, 0.12);
       --status-win: #34c759;
       --status-win-bg: rgba(52, 199, 89, 0.12);
       --status-loss: #ff3b30;
@@ -419,6 +421,11 @@
       color: var(--status-work);
     }
     
+    .badge-reopen {
+      background-color: var(--status-reopen-bg);
+      color: var(--status-reopen);
+    }
+    
     .badge-win {
       background-color: var(--status-win-bg);
       color: var(--status-win);
@@ -803,6 +810,64 @@
     .hidden {
       display: none !important;
     }
+    
+    /* ── СТИЛИ ДЛЯ ДЕСКТОПНОГО РЕЖИМА ── */
+    body.desktop-mode {
+      background-color: #f0f0f3 !important;
+    }
+    @media (prefers-color-scheme: dark) {
+      body.desktop-mode {
+        background-color: #0c0c0e !important;
+      }
+    }
+    body.desktop-mode #app-container {
+      max-width: 1200px !important;
+      padding-bottom: 40px !important;
+      transition: var(--transition-apple);
+    }
+    body.desktop-mode .tab-bar {
+      max-width: 1200px !important;
+      left: 50% !important;
+      transform: translateX(-50%) !important;
+      border-radius: 16px 16px 0 0 !important;
+      box-shadow: 0 -8px 30px rgba(0, 0, 0, 0.08) !important;
+    }
+    
+    /* Grid layout inside sections on wide screens in desktop mode */
+    @media (min-width: 768px) {
+      body.desktop-mode #view-dashboard {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 20px;
+      }
+      body.desktop-mode #view-dashboard .stats-grid {
+        grid-column: span 2;
+      }
+      body.desktop-mode #view-dashboard #search-wrapper {
+        grid-column: span 2;
+      }
+      
+      body.desktop-mode #view-reports {
+        display: grid;
+        grid-template-columns: 1.2fr 1fr;
+        gap: 20px;
+      }
+      
+      body.desktop-mode #view-company {
+        display: grid;
+        grid-template-columns: 1fr 1.2fr;
+        gap: 20px;
+      }
+      body.desktop-mode #view-company .segmented-control {
+        grid-column: span 2;
+      }
+      
+      body.desktop-mode #view-admin {
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 20px;
+      }
+    }
   </style>
 </head>
 <body>
@@ -828,8 +893,12 @@
           <div id="header-subtitle" class="subtitle">Менеджер заявок</div>
         </div>
       </div>
-      <div class="header-actions">
+      <div class="header-actions" style="display: flex; align-items: center; gap: 10px;">
         <span id="user-role-badge" class="badge badge-work hidden">Руководитель</span>
+        <button id="desktop-toggle-btn" class="btn btn-secondary" style="width: auto; padding: 6px 12px; border-radius: 12px; font-size:12px; display: flex; align-items: center; gap: 6px; cursor: pointer; border: 1px solid var(--card-border); background: var(--card-bg); color: var(--text-color);">
+          <svg viewBox="0 0 24 24" style="width: 14px; height: 14px; fill: currentColor;"><path d="M20 18c1.1 0 1.99-.9 1.99-2L22 6c0-1.11-.9-2-2-2H4c-1.11 0-2 .89-2 2v10c0 1.1.89 2 2 2H0v2h24v-2h-4zM4 6h16v10H4V6z"/></svg>
+          <span id="desktop-btn-text">Широкий экран</span>
+        </button>
       </div>
     </header>
 
@@ -852,7 +921,7 @@
       </div>
 
       <!-- Поиск и Добавление компании -->
-      <div style="display: flex; gap: 10px; align-items: center;">
+      <div id="search-wrapper" style="display: flex; gap: 10px; align-items: center; width: 100%;">
         <div class="search-container">
           <svg viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>
           <input type="text" id="company-search" class="search-input" placeholder="Поиск компаний...">
@@ -1001,7 +1070,7 @@
           <div class="status-steps">
             <div class="status-step" id="step-accepted">
               <div class="step-circle">1</div>
-              <span class="step-label">Принята</span>
+              <span class="step-label">Поступило</span>
             </div>
             <div class="status-step" id="step-work">
               <div class="step-circle">2</div>
@@ -1009,7 +1078,7 @@
             </div>
             <div class="status-step" id="step-win">
               <div class="step-circle">3</div>
-              <span class="step-label">Завершена</span>
+              <span class="step-label">Успешно</span>
             </div>
           </div>
         </div>
@@ -1275,10 +1344,11 @@
     };
 
     // Константы
-    const ST_ACCEPTED = "Принято";
+    const ST_ACCEPTED = "Поступило";
     const ST_WORK = "В работе";
-    const ST_WIN = "Удачная сделка";
-    const ST_LOSS = "Неудачная сделка";
+    const ST_REOPEN = "Вернулся в работу";
+    const ST_WIN = "Успешно";
+    const ST_LOSS = "Провалено";
 
     // Хелпер валюты
     function formatMoney(amount) {
@@ -1533,6 +1603,7 @@
         let badgeClass = 'badge-accepted';
         let emoji = '🟡';
         if (d.status === ST_WORK) { badgeClass = 'badge-work'; emoji = '🔵'; }
+        else if (d.status === ST_REOPEN) { badgeClass = 'badge-reopen'; emoji = '↩️'; }
         else if (d.status === ST_WIN) { badgeClass = 'badge-win'; emoji = '✅'; }
         else if (d.status === ST_LOSS) { badgeClass = 'badge-loss'; emoji = '❌'; }
 
@@ -1646,16 +1717,18 @@
         
         if (state.activeDeal.status === ST_ACCEPTED) {
           document.getElementById('step-accepted').classList.add('active');
-        } else if (state.activeDeal.status === ST_WORK) {
+        } else if (state.activeDeal.status === ST_WORK || state.activeDeal.status === ST_REOPEN) {
           document.getElementById('step-accepted').classList.add('completed');
           document.getElementById('step-work').classList.add('active');
+          document.querySelector('#step-work .step-label').textContent = state.activeDeal.status === ST_REOPEN ? 'Возврат' : 'В работе';
         } else if (state.activeDeal.status === ST_WIN) {
           document.getElementById('step-accepted').classList.add('completed');
           document.getElementById('step-work').classList.add('completed');
           document.getElementById('step-win').classList.add('completed');
+          document.querySelector('#step-work .step-label').textContent = 'В работе';
         } else if (state.activeDeal.status === ST_LOSS) {
-          // Неудачная сделка - окрашиваем шапку в красный
           document.getElementById('step-accepted').classList.add('completed');
+          document.querySelector('#step-work .step-label').textContent = 'В работе';
         }
 
         // Заполнение полей
@@ -2200,9 +2273,14 @@
         const params = getReportParams();
         if (!params) return;
         
-        // Открываем загрузку в новой вкладке/браузере
-        window.open(`/api/reports/download?${params}`, '_blank');
-        showToast("Формирование XLSX...");
+        const url = `${window.location.origin}/api/reports/download?${params}`;
+        if (tg && tg.openLink) {
+          tg.openLink(url);
+          showToast("Загрузка отчёта...");
+        } else {
+          window.open(url, '_blank');
+          showToast("Формирование XLSX...");
+        }
       };
 
       // Отправка отчета в бот Telegram
@@ -2217,6 +2295,22 @@
         } catch(e) {}
         finally { setLoader(false); }
       };
+      
+      // Переключатель десктопного / мобильного режима
+      document.getElementById('desktop-toggle-btn').onclick = () => {
+        const isDesktop = document.body.classList.toggle('desktop-mode');
+        document.getElementById('desktop-btn-text').textContent = isDesktop ? 'Мобильный вид' : 'Широкий экран';
+        localStorage.setItem('desktop_mode', isDesktop ? '1' : '0');
+        if (tg && tg.HapticFeedback) {
+          tg.HapticFeedback.impactOccurred('medium');
+        }
+      };
+      
+      // Загрузка сохраненного режима при старте
+      if (localStorage.getItem('desktop_mode') === '1') {
+        document.body.classList.add('desktop-mode');
+        document.getElementById('desktop-btn-text').textContent = 'Мобильный вид';
+      }
     }
 
     // Запуск приложения

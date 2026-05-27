@@ -192,6 +192,77 @@ async def sync_deal_to_bitrix(deal_id: int):
     except Exception as e:
         logging.error(f"Bitrix24 sync error: {e}")
 
+async def sync_from_bitrix(event: str, data_id: int):
+    import httpx
+    try:
+        await init_db()
+        if event == "ONCRMDEALUPDATE":
+            async with httpx.AsyncClient() as client:
+                res = await client.get(f"{BITRIX_URL}crm.deal.get.json?id={data_id}")
+                if res.status_code == 200:
+                    rdata = res.json()
+                    if "result" in rdata:
+                        deal_info = rdata["result"]
+                        stage_id = deal_info.get("STAGE_ID")
+                        opportunity = float(deal_info.get("OPPORTUNITY") or 0)
+                        
+                        reverse_stage_map = {
+                            "NEW": ST_ACCEPTED,
+                            "PREPARATION": ST_WORK,
+                            "PREPAYMENT_INVOICE": ST_REOPEN,
+                            "WON": ST_WIN,
+                            "LOSE": ST_LOSS
+                        }
+                        new_status = reverse_stage_map.get(stage_id)
+                        if new_status:
+                            async with pool.acquire() as conn:
+                                db_deal = await conn.fetchrow("SELECT id, status, final_amount, final_workers FROM orders WHERE bitrix_id=$1", data_id)
+                                if db_deal:
+                                    if db_deal["status"] != new_status:
+                                        if new_status == ST_WIN:
+                                            final_amount = db_deal["final_amount"] or opportunity
+                                            final_workers = db_deal["final_workers"] or 1
+                                            await conn.execute(
+                                                "UPDATE orders SET status=$1, final_amount=$2, final_workers=$3 WHERE bitrix_id=$4",
+                                                new_status, final_amount, final_workers, data_id
+                                            )
+                                        else:
+                                            await conn.execute("UPDATE orders SET status=$1 WHERE bitrix_id=$2", new_status, data_id)
+                                        logging.info(f"Synced deal {data_id} status from Bitrix24 to {new_status}")
+                                        
+        elif event == "ONCRMDEALDELETE":
+            async with pool.acquire() as conn:
+                await conn.execute("DELETE FROM orders WHERE bitrix_id=$1", data_id)
+                logging.info(f"Deleted deal {data_id} as requested by Bitrix24")
+                
+        elif event == "ONCRMCOMPANYUPDATE":
+            async with httpx.AsyncClient() as client:
+                res = await client.get(f"{BITRIX_URL}crm.company.get.json?id={data_id}")
+                if res.status_code == 200:
+                    rdata = res.json()
+                    if "result" in rdata:
+                        comp_info = rdata["result"]
+                        name = comp_info.get("TITLE")
+                        phones = comp_info.get("PHONE") or []
+                        phone = phones[0].get("VALUE") if phones else None
+                        
+                        async with pool.acquire() as conn:
+                            db_comp = await conn.fetchrow("SELECT id FROM companies WHERE bitrix_id=$1", data_id)
+                            if db_comp:
+                                await conn.execute(
+                                    "UPDATE companies SET name=$1, phone=COALESCE($2, phone) WHERE bitrix_id=$3",
+                                    name, phone, data_id
+                                )
+                                logging.info(f"Synced company {data_id} from Bitrix24")
+                                
+        elif event == "ONCRMCOMPANYDELETE":
+            async with pool.acquire() as conn:
+                await conn.execute("DELETE FROM orders WHERE company_id IN (SELECT id FROM companies WHERE bitrix_id=$1)", data_id)
+                await conn.execute("DELETE FROM companies WHERE bitrix_id=$1", data_id)
+                logging.info(f"Deleted company {data_id} and its deals as requested by Bitrix24")
+    except Exception as e:
+        logging.error(f"Error in sync_from_bitrix: {e}")
+
 # ──────────────────────────── УТИЛИТЫ ─────────────────────────────
 def esc(s): return html.escape(str(s)) if s not in (None, "") else "—"
 def parse_date(text):
@@ -1034,6 +1105,25 @@ async def api_rename_manager(id: int, payload: RenamePayload, u = Depends(get_cu
     async with pool.acquire() as conn:
         await conn.execute("UPDATE managers SET name=$1 WHERE id=$2", payload.name, id)
     return {"status": "Имя менеджера успешно обновлено"}
+
+@app.post("/api/bitrix/webhook")
+async def bitrix_webhook(request: Request):
+    try:
+        form_data = await request.form()
+        event = form_data.get("event")
+        data_id = form_data.get("data[FIELDS][ID]")
+        
+        logging.info(f"Received Bitrix24 webhook: event={event}, ID={data_id}")
+        
+        if event and data_id:
+            try:
+                data_id_val = int(data_id)
+                asyncio.create_task(sync_from_bitrix(event, data_id_val))
+            except ValueError:
+                pass
+    except Exception as e:
+        logging.error(f"Error handling Bitrix24 webhook: {e}")
+    return {"status": "ok"}
 
 @app.post("/api/webhook")
 async def telegram_webhook(request: Request):
