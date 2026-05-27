@@ -617,37 +617,7 @@
     .status-step.active .step-label {
       color: var(--accent-color);
     }
-    
-    /* ── Стили для десктопного / широкого режима ── */
-    body.desktop-mode #app-container {
-      max-width: 1200px !important;
-    }
-    
-    body.desktop-mode .stats-grid {
-      grid-template-columns: repeat(3, 1fr) !important;
-    }
-    
-    body.desktop-mode .stat-item.full-width {
-      grid-column: auto !important;
-    }
-    
-    @media (min-width: 768px) {
-      body.desktop-mode #view-company {
-        display: grid !important;
-        grid-template-columns: 380px 1fr !important;
-        gap: 24px !important;
-        align-items: start !important;
-      }
-      
-      body.desktop-mode #view-company .segmented-control {
-        grid-column: 1 !important;
-        margin-top: -10px !important;
-      }
-      
-      body.desktop-mode #view-company .card {
-        margin: 0 !important;
-      }
-    }
+
     
     /* ── Bottom Sheets (iOS стиль Выдвижные меню) ── */
     .sheet-overlay {
@@ -853,7 +823,7 @@
     }
     body.desktop-mode #app-container {
       max-width: 1200px !important;
-      padding-bottom: 40px !important;
+      padding-bottom: 120px !important;
       transition: var(--transition-apple);
     }
     body.desktop-mode .tab-bar {
@@ -862,41 +832,62 @@
       transform: translateX(-50%) !important;
       border-radius: 16px 16px 0 0 !important;
       box-shadow: 0 -8px 30px rgba(0, 0, 0, 0.08) !important;
+      z-index: 9999 !important;
+    }
+    
+    body.desktop-mode .stats-grid {
+      grid-template-columns: repeat(3, 1fr) !important;
+    }
+    body.desktop-mode .stat-item.full-width {
+      grid-column: auto !important;
     }
     
     /* Grid layout inside sections on wide screens in desktop mode */
     @media (min-width: 768px) {
-      body.desktop-mode #view-dashboard {
-        display: grid;
-        grid-template-columns: 1fr 1fr;
-        gap: 20px;
+      body.desktop-mode #view-dashboard.active {
+        display: grid !important;
+        grid-template-columns: 1fr 1fr !important;
+        gap: 20px !important;
       }
-      body.desktop-mode #view-dashboard .stats-grid {
-        grid-column: span 2;
+      body.desktop-mode #view-dashboard.active .stats-grid {
+        grid-column: span 2 !important;
       }
-      body.desktop-mode #view-dashboard #search-wrapper {
-        grid-column: span 2;
-      }
-      
-      body.desktop-mode #view-reports {
-        display: grid;
-        grid-template-columns: 1.2fr 1fr;
-        gap: 20px;
+      body.desktop-mode #view-dashboard.active #search-wrapper {
+        grid-column: span 2 !important;
       }
       
-      body.desktop-mode #view-company {
-        display: grid;
-        grid-template-columns: 1fr 1.2fr;
-        gap: 20px;
-      }
-      body.desktop-mode #view-company .segmented-control {
-        grid-column: span 2;
+      body.desktop-mode #view-reports.active {
+        display: grid !important;
+        grid-template-columns: 1.2fr 1fr !important;
+        gap: 20px !important;
       }
       
-      body.desktop-mode #view-admin {
-        display: grid;
-        grid-template-columns: 1fr;
-        gap: 20px;
+      body.desktop-mode #view-company.active {
+        display: grid !important;
+        grid-template-columns: 380px 1fr !important;
+        gap: 24px !important;
+        align-items: start !important;
+      }
+      body.desktop-mode #view-company.active > .card:first-of-type {
+        grid-column: 1 !important;
+        grid-row: 1 / span 2 !important;
+        margin: 0 !important;
+      }
+      body.desktop-mode #view-company.active > .segmented-control {
+        grid-column: 2 !important;
+        grid-row: 1 !important;
+        margin: 0 !important;
+      }
+      body.desktop-mode #view-company.active > .card:last-of-type {
+        grid-column: 2 !important;
+        grid-row: 2 !important;
+        margin: 0 !important;
+      }
+      
+      body.desktop-mode #view-admin.active {
+        display: grid !important;
+        grid-template-columns: 1fr !important;
+        gap: 20px !important;
       }
     }
   </style>
