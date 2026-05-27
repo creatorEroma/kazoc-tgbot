@@ -618,6 +618,37 @@
       color: var(--accent-color);
     }
     
+    /* ── Стили для десктопного / широкого режима ── */
+    body.desktop-mode #app-container {
+      max-width: 1200px !important;
+    }
+    
+    body.desktop-mode .stats-grid {
+      grid-template-columns: repeat(3, 1fr) !important;
+    }
+    
+    body.desktop-mode .stat-item.full-width {
+      grid-column: auto !important;
+    }
+    
+    @media (min-width: 768px) {
+      body.desktop-mode #view-company {
+        display: grid !important;
+        grid-template-columns: 380px 1fr !important;
+        gap: 24px !important;
+        align-items: start !important;
+      }
+      
+      body.desktop-mode #view-company .segmented-control {
+        grid-column: 1 !important;
+        margin-top: -10px !important;
+      }
+      
+      body.desktop-mode #view-company .card {
+        margin: 0 !important;
+      }
+    }
+    
     /* ── Bottom Sheets (iOS стиль Выдвижные меню) ── */
     .sheet-overlay {
       position: fixed;
@@ -1786,7 +1817,7 @@
           <button class="btn btn-primary" onclick="changeDealStatus(${d.id}, 'work')">▶️ Запустить в работу</button>
           <button class="btn btn-danger" onclick="changeDealStatus(${d.id}, 'loss')">❌ Отменить как неудачную</button>
         `;
-      } else if (d.status === ST_WORK) {
+      } else if (d.status === ST_WORK || d.status === ST_REOPEN) {
         actionButtons += `
           <button class="btn btn-primary" style="background-color: var(--status-win); box-shadow:0 4px 15px rgba(52,199,89,0.2);" onclick="openWinSheet(${d.id})">✅ Успешно завершить</button>
           <button class="btn btn-danger" onclick="changeDealStatus(${d.id}, 'loss')">❌ Пометить неудачной</button>

@@ -851,6 +851,35 @@ async def adm_add_name(m: Message, state: FSMContext):
     except asyncpg.exceptions.UniqueViolationError:
         await m.answer("Этот ID уже есть.", reply_markup=kb([[btn("👥 К менеджерам", "adm:mgrs")]]))
 
+@dp.message(CommandStart())
+@dp.message(Command("start"))
+@dp.message(Command("desktop"))
+async def cmd_start(m: Message):
+    u = await get_user(m.from_user.id)
+    if not is_allowed(u): return await m.answer(f"⛔️ Доступ запрещён. ID: <code>{m.from_user.id}</code>")
+    
+    web_url = os.environ.get("WEB_APP_URL", "https://kazoc-tgbot-nine.vercel.app")
+    desktop_url = f"{web_url}/?tg_id={m.from_user.id}"
+    
+    text = (
+        f"👋 <b>Добро пожаловать в KazOC CRM!</b>\n\n"
+        f"🖥 <b>Ссылка для ПК (Десктопный режим):</b>\n"
+        f"<code>{desktop_url}</code>\n\n"
+        f"<i>Скопируйте эту ссылку и откройте её на вашем компьютере, чтобы работать в удобном широком окне с двумя колонками!</i>"
+    )
+    
+    kb_rows = [
+        [InlineKeyboardButton(text="📱 Открыть Web App (в TG)", web_app=WebAppInfo(url=web_url))],
+        [InlineKeyboardButton(text="🖥 Открыть на ПК", url=desktop_url)],
+        [btn("📋 Компании-клиенты", "co:list:0")],
+        [btn("➕ Новая компания", "co:new")],
+        [btn("📊 Отчёты", "rep:menu")]
+    ]
+    if is_admin(u):
+        kb_rows.append([btn("🔐 Админка", "adm:auth")])
+        
+    await m.answer(text, reply_markup=kb(kb_rows))
+
 @dp.message(StateFilter(None))
 async def fallback(m: Message):
     u = await get_user(m.from_user.id)
