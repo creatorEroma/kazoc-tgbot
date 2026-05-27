@@ -821,19 +821,28 @@
         background-color: #0b0c0e !important;
       }
     }
+    
     body.desktop-mode #app-container {
+      display: flex !important;
+      flex-direction: column !important;
       max-width: 1400px !important;
       padding-bottom: 40px !important;
       transition: var(--transition-apple);
       margin: 0 auto !important;
     }
     
-    /* Превращаем iOS Bottom Bar в элегантный Top Navigation Segment Selector */
+    /* Использование flex-order для размещения шапки и таб-бара сверху */
+    body.desktop-mode header {
+      order: 1 !important;
+      width: 100% !important;
+    }
+    
     body.desktop-mode .tab-bar {
+      order: 2 !important;
       position: static !important;
       transform: none !important;
       max-width: 500px !important;
-      margin: 0 auto 30px auto !important;
+      margin: 10px auto 30px auto !important;
       background: var(--card-bg) !important;
       border: 1px solid var(--card-border) !important;
       border-radius: 16px !important;
@@ -842,6 +851,11 @@
       display: flex !important;
       gap: 4px !important;
       z-index: 9999 !important;
+    }
+    
+    body.desktop-mode .views-container {
+      order: 3 !important;
+      width: 100% !important;
     }
     
     body.desktop-mode .tab-btn {
@@ -871,6 +885,44 @@
     }
     body.desktop-mode .tab-btn.active svg {
       fill: var(--accent-color) !important;
+    }
+    
+    /* Микроанимации списков и карточек на десктопе */
+    body.desktop-mode .list-item {
+      transition: all 0.25s cubic-bezier(0.25, 0.8, 0.25, 1) !important;
+    }
+    body.desktop-mode .list-item:hover {
+      transform: translateY(-2px) !important;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.05) !important;
+      border-color: var(--accent-color) !important;
+    }
+    
+    /* Выделение активного выбранного элемента компании в списке */
+    body.desktop-mode #companies-list .list-item.active {
+      background-color: var(--accent-bg) !important;
+      border-color: var(--accent-color) !important;
+      box-shadow: 0 4px 12px rgba(0, 113, 227, 0.08) !important;
+    }
+    body.desktop-mode #companies-list .list-item.active .title {
+      color: var(--accent-color) !important;
+      font-weight: 700 !important;
+    }
+    body.desktop-mode #companies-list .list-item.active .chevron {
+      fill: var(--accent-color) !important;
+    }
+    
+    /* Улучшенный ховер карточек статистики */
+    body.desktop-mode .stat-item {
+      background: var(--card-bg) !important;
+      border: 1px solid var(--card-border) !important;
+      border-radius: 18px;
+      padding: 16px;
+      box-shadow: 0 2px 12px rgba(0, 0, 0, 0.01) !important;
+      transition: all 0.25s cubic-bezier(0.25, 0.8, 0.25, 1) !important;
+    }
+    body.desktop-mode .stat-item:hover {
+      border-color: var(--accent-color) !important;
+      transform: translateY(-1px) !important;
     }
     
     /* Двухколоночный CRM-контейнер для десктопа */
@@ -1750,7 +1802,8 @@
 
       list.forEach(c => {
         const div = document.createElement('div');
-        div.className = 'list-item';
+        div.className = 'list-item' + (state.activeCompany && state.activeCompany.id === c.id ? ' active' : '');
+        div.dataset.id = c.id;
         div.onclick = () => openCompanyDetail(c.id);
         div.innerHTML = `
           <div class="info">
@@ -1855,6 +1908,15 @@
         const data = await apiRequest(`/api/companies/${cid}`);
         state.activeCompany = data.company;
         document.getElementById('view-company').classList.add('company-selected');
+        
+        // Выделение активного элемента в боковой панели
+        document.querySelectorAll('#companies-list .list-item').forEach(item => {
+          if (parseInt(item.dataset.id) === cid) {
+            item.classList.add('active');
+          } else {
+            item.classList.remove('active');
+          }
+        });
         
         document.getElementById('company-detail-name').textContent = state.activeCompany.name;
         document.getElementById('company-detail-phone').innerHTML = state.activeCompany.phone ? `<a href="tel:${state.activeCompany.phone}" style="color:var(--accent-color); text-decoration:none;">${state.activeCompany.phone}</a>` : '—';
@@ -2486,9 +2548,14 @@
       };
       
       // Загрузка сохраненного режима при старте
-      if (localStorage.getItem('desktop_mode') === '1') {
+      const savedMode = localStorage.getItem('desktop_mode');
+      const isWideScreen = window.innerWidth >= 1024;
+      if (savedMode === '1' || (savedMode === null && isWideScreen)) {
         document.body.classList.add('desktop-mode');
         document.getElementById('desktop-btn-text').textContent = 'Мобильный вид';
+      } else {
+        document.body.classList.remove('desktop-mode');
+        document.getElementById('desktop-btn-text').textContent = 'Широкий экран';
       }
     }
 
