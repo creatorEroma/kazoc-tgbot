@@ -949,31 +949,20 @@
       
       body.desktop-mode:has(#view-dashboard.active) #view-company,
       body.desktop-mode:has(#view-company.active) #view-company {
-        display: grid !important;
-        grid-template-columns: 380px 1fr !important;
+        display: flex !important;
+        flex-direction: column !important;
         gap: 24px !important;
-        align-items: start !important;
+        align-items: stretch !important;
+        max-width: 800px !important;
+        margin: 0 auto !important;
       }
       
-      body.desktop-mode #view-company.active > .card:first-of-type,
-      body.desktop-mode:has(#view-company.active) #view-company > .card:first-of-type {
-        grid-column: 1 !important;
-        grid-row: 1 / span 2 !important;
-        margin: 0 !important;
-      }
-      
+      body.desktop-mode #view-company.active > .card,
       body.desktop-mode #view-company.active > .segmented-control,
+      body.desktop-mode:has(#view-company.active) #view-company > .card,
       body.desktop-mode:has(#view-company.active) #view-company > .segmented-control {
-        grid-column: 2 !important;
-        grid-row: 1 !important;
         margin: 0 !important;
-      }
-      
-      body.desktop-mode #view-company.active > .card:last-of-type,
-      body.desktop-mode:has(#view-company.active) #view-company > .card:last-of-type {
-        grid-column: 2 !important;
-        grid-row: 2 !important;
-        margin: 0 !important;
+        width: 100% !important;
       }
       
       body.desktop-mode #view-dashboard .stats-grid {
@@ -1008,7 +997,7 @@
     }
     
     #company-placeholder {
-      display: none;
+      display: none !important;
     }
     body.desktop-mode #view-company:not(.company-selected) > .card,
     body.desktop-mode #view-company:not(.company-selected) > .segmented-control {
@@ -1110,7 +1099,7 @@
     <!-- ─────────────────────────── ЭКРАН 2: ДЕТАЛИ КОМПАНИИ ─────────────────────────── -->
     <div id="view-company" class="view">
       <!-- Заглушка, когда компания не выбрана (только для десктопа) -->
-      <div id="company-placeholder" class="card placeholder-card" style="display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 80px 40px; text-align: center; height: 100%; border: 2px dashed var(--card-border); background: transparent;">
+      <div id="company-placeholder" class="card placeholder-card" style="flex-direction: column; align-items: center; justify-content: center; padding: 80px 40px; text-align: center; height: 100%; border: 2px dashed var(--card-border); background: transparent;">
         <div style="font-size: 60px; margin-bottom: 20px; filter: grayscale(0.2);">🏢</div>
         <div style="font-family: var(--font-display); font-size: 22px; font-weight: 700; color: var(--text-color); margin-bottom: 12px;">Выберите компанию</div>
         <div style="font-size: 14px; color: var(--text-secondary); max-width: 320px; line-height: 1.6;">Выберите клиента из списка слева, чтобы просмотреть его контакты, текущие и будущие заявки.</div>
