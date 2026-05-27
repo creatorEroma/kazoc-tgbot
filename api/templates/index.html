@@ -1622,12 +1622,28 @@
 
     // API Вызовы
     async function apiRequest(endpoint, options = {}) {
-      // Подмешиваем Telegram ID авторизации
-      const tgId = tg?.initDataUnsafe?.user?.id || new URLSearchParams(window.location.search).get('tg_id') || 1048016268; // Для тестов
+      // Извлекаем tg_id и token из URL параметров или localStorage
+      const urlParams = new URLSearchParams(window.location.search);
+      let tgId = urlParams.get('tg_id');
+      let token = urlParams.get('token');
+
+      if (tgId && token) {
+        localStorage.setItem('auth_tg_id', tgId);
+        localStorage.setItem('auth_token', token);
+      } else {
+        tgId = localStorage.getItem('auth_tg_id');
+        token = localStorage.getItem('auth_token');
+      }
+
+      // Если открыто в Telegram WebApp, пробуем использовать ID из WebApp
+      if (!tgId && window.Telegram?.WebApp?.initDataUnsafe?.user?.id) {
+        tgId = String(window.Telegram.WebApp.initDataUnsafe.user.id);
+      }
       
       const headers = {
         'Content-Type': 'application/json',
-        'X-Telegram-User-Id': String(tgId),
+        'X-Telegram-User-Id': String(tgId || ''),
+        'X-Telegram-Token': String(token || ''),
         ...(options.headers || {})
       };
 
@@ -1686,10 +1702,15 @@
       } catch (e) {
         console.error(e);
         document.getElementById('loader').innerHTML = `
-          <div style="color: var(--status-loss); font-size: 28px; font-weight:700;">⛔️ Доступ запрещен</div>
-          <div style="font-size:14px; text-align:center; padding: 20px; color: var(--text-secondary);">
-            Вашего Telegram ID нет в списке одобренных менеджеров или у вас нет активного доступа.
-            <br><br>Telegram ID: <b>${tg?.initDataUnsafe?.user?.id || 'Неизвестен'}</b>
+          <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 20px; padding: 40px; text-align: center;">
+            <div style="font-size: 72px; animation: pulse 2s infinite; filter: drop-shadow(0 0 10px rgba(255,59,48,0.2));">🔒</div>
+            <div style="font-family: var(--font-display); font-size: 26px; font-weight: 800; color: var(--text-color); margin-top: 10px;">Доступ ограничен</div>
+            <div style="font-size: 14px; color: var(--text-secondary); max-width: 320px; line-height: 1.6;">
+              Вход разрешен только авторизованным сотрудникам KazOC. Пожалуйста, запросите вашу уникальную ссылку в боте.
+            </div>
+            <a href="https://t.me/kazoc_bot" target="_blank" class="btn btn-primary" style="margin-top: 15px; text-decoration: none; display: inline-flex; align-items: center; gap: 8px; font-weight: 600; padding: 12px 24px; border-radius: 14px; box-shadow: 0 4px 12px rgba(0, 113, 227, 0.25);">
+              💬 Получить ссылку в Боте
+            </a>
           </div>
         `;
       }
@@ -2503,7 +2524,11 @@
         const params = getReportParams();
         if (!params) return;
         
-        const url = `${window.location.origin}/api/reports/download?${params}`;
+        // Получаем сохраненную сессию
+        const tgId = localStorage.getItem('auth_tg_id') || '';
+        const token = localStorage.getItem('auth_token') || '';
+        
+        const url = `${window.location.origin}/api/reports/download?${params}&tg_id=${tgId}&token=${token}`;
         if (tg && tg.openLink) {
           tg.openLink(url);
           showToast("Загрузка отчёта...");

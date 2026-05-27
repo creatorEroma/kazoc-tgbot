@@ -33,6 +33,19 @@ HOME_NAME = "KazOC"
 REPORTS_DIR = "/tmp/reports"  # Vercel позволяет писать только в /tmp
 ADMIN_IDS = {1048016268, 8062167787}
 
+import hmac
+import hashlib
+
+def generate_user_token(telegram_id: int) -> str:
+    msg = str(telegram_id).encode('utf-8')
+    return hmac.new(BOT_TOKEN.encode('utf-8'), msg, hashlib.sha256).hexdigest()
+
+def verify_token(telegram_id: int, token: str) -> bool:
+    if not token:
+        return False
+    expected = generate_user_token(telegram_id)
+    return hmac.compare_digest(expected, token)
+
 os.makedirs(REPORTS_DIR, exist_ok=True)
 logging.basicConfig(level=logging.INFO)
 
@@ -426,8 +439,11 @@ async def cmd_start(m: Message, state: FSMContext):
     await state.clear(); u = await get_user(m.from_user.id)
     if not is_allowed(u): return await m.answer(f"⛔️ <b>Доступ запрещён.</b>\nID: <code>{m.from_user.id}</code>")
     
-    web_url = os.environ.get("WEB_APP_URL", "https://kazoc-tgbot-nine.vercel.app")
-    desktop_url = f"{web_url}/?tg_id={m.from_user.id}"
+    web_url_base = os.environ.get("WEB_APP_URL", "https://kazoc-tgbot-nine.vercel.app")
+    token = generate_user_token(m.from_user.id)
+    
+    web_app_url = f"{web_url_base}/?tg_id={m.from_user.id}&token={token}"
+    desktop_url = f"{web_url_base}/?tg_id={m.from_user.id}&token={token}"
     
     text = (
         f"🏠 <b>{esc(HOME_NAME)}</b>\n"
@@ -439,7 +455,7 @@ async def cmd_start(m: Message, state: FSMContext):
     )
     
     kb_rows = [
-        [InlineKeyboardButton(text="📱 Открыть Web App", web_app=WebAppInfo(url=web_url))],
+        [InlineKeyboardButton(text="📱 Открыть Web App", web_app=WebAppInfo(url=web_app_url))],
         [InlineKeyboardButton(text="🖥 Открыть на ПК", url=desktop_url)],
         [btn("📋 Компании-клиенты", "co:list:0")],
         [btn("➕ Новая компания", "co:new")],
@@ -840,20 +856,27 @@ async def get_web_app():
 
 async def get_current_user(
     x_telegram_user_id: Optional[str] = Header(None),
-    tg_id: Optional[str] = None
+    x_telegram_token: Optional[str] = Header(None),
+    tg_id: Optional[str] = None,
+    token: Optional[str] = None
 ):
     await init_db()
     uid = x_telegram_user_id or tg_id
+    tok = x_telegram_token or token
     if not uid:
-        raise HTTPException(status_code=400, detail="Missing Telegram User ID (header or query param)")
+        raise HTTPException(status_code=401, detail="Доступ запрещён: отсутствует ID пользователя")
     try:
         tg_id_val = int(uid)
     except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid Telegram User ID format")
+        raise HTTPException(status_code=400, detail="Неверный формат ID")
     
+    # Проверка подписи/токена доступа
+    if not verify_token(tg_id_val, tok):
+        raise HTTPException(status_code=403, detail="Доступ запрещён: неверный или просроченный токен")
+        
     u = await get_user(tg_id_val)
     if not u or u["active"] != 1:
-        raise HTTPException(status_code=403, detail="Доступ запрещён")
+        raise HTTPException(status_code=403, detail="Доступ запрещён: пользователь неактивен")
     return u
 
 class CompanyPayload(BaseModel):
