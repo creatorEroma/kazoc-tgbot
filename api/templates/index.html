@@ -812,83 +812,175 @@
       display: none !important;
     }
     
-    /* ── СТИЛИ ДЛЯ ДЕСКТОПНОГО РЕЖИМА ── */
+    /* ── СТИЛИ ДЛЯ ДЕСКТОПНОГО РЕЖИМА (ПОЛНОЦЕННЫЙ CRM ИНТЕРФЕЙС) ── */
     body.desktop-mode {
-      background-color: #f0f0f3 !important;
+      background-color: #f4f5f8 !important;
     }
     @media (prefers-color-scheme: dark) {
       body.desktop-mode {
-        background-color: #0c0c0e !important;
+        background-color: #0b0c0e !important;
       }
     }
     body.desktop-mode #app-container {
-      max-width: 1200px !important;
-      padding-bottom: 120px !important;
+      max-width: 1400px !important;
+      padding-bottom: 40px !important;
       transition: var(--transition-apple);
+      margin: 0 auto !important;
     }
+    
+    /* Превращаем iOS Bottom Bar в элегантный Top Navigation Segment Selector */
     body.desktop-mode .tab-bar {
-      max-width: 1200px !important;
-      left: 50% !important;
-      transform: translateX(-50%) !important;
-      border-radius: 16px 16px 0 0 !important;
-      box-shadow: 0 -8px 30px rgba(0, 0, 0, 0.08) !important;
+      position: static !important;
+      transform: none !important;
+      max-width: 500px !important;
+      margin: 0 auto 30px auto !important;
+      background: var(--card-bg) !important;
+      border: 1px solid var(--card-border) !important;
+      border-radius: 16px !important;
+      padding: 6px !important;
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.04) !important;
+      display: flex !important;
+      gap: 4px !important;
       z-index: 9999 !important;
     }
     
-    body.desktop-mode .stats-grid {
-      grid-template-columns: repeat(3, 1fr) !important;
-    }
-    body.desktop-mode .stat-item.full-width {
-      grid-column: auto !important;
+    body.desktop-mode .tab-btn {
+      flex: 1 !important;
+      flex-direction: row !important;
+      justify-content: center !important;
+      align-items: center !important;
+      gap: 8px !important;
+      padding: 10px 16px !important;
+      border-radius: 12px !important;
+      font-size: 13px !important;
+      font-weight: 600 !important;
+      color: var(--text-secondary) !important;
+      background: transparent !important;
+      transition: all 0.2s ease !important;
     }
     
-    /* Grid layout inside sections on wide screens in desktop mode */
+    body.desktop-mode .tab-btn svg {
+      width: 18px !important;
+      height: 18px !important;
+      fill: var(--text-secondary) !important;
+    }
+    
+    body.desktop-mode .tab-btn.active {
+      background: rgba(0, 122, 255, 0.1) !important;
+      color: var(--accent-color) !important;
+    }
+    body.desktop-mode .tab-btn.active svg {
+      fill: var(--accent-color) !important;
+    }
+    
+    /* Двухколоночный CRM-контейнер для десктопа */
     @media (min-width: 768px) {
-      body.desktop-mode #view-dashboard.active {
-        display: grid !important;
-        grid-template-columns: 1fr 1fr !important;
-        gap: 20px !important;
-      }
-      body.desktop-mode #view-dashboard.active .stats-grid {
-        grid-column: span 2 !important;
-      }
-      body.desktop-mode #view-dashboard.active #search-wrapper {
-        grid-column: span 2 !important;
+      body.desktop-mode .views-container {
+        position: relative !important;
+        width: 100% !important;
       }
       
-      body.desktop-mode #view-reports.active {
+      body.desktop-mode:has(#view-dashboard.active) .views-container,
+      body.desktop-mode:has(#view-company.active) .views-container {
         display: grid !important;
-        grid-template-columns: 1.2fr 1fr !important;
+        grid-template-columns: 400px 1fr !important;
+        gap: 30px !important;
+        align-items: start !important;
+      }
+      
+      body.desktop-mode:has(#view-dashboard.active) #view-dashboard,
+      body.desktop-mode:has(#view-company.active) #view-dashboard {
+        display: flex !important;
+        flex-direction: column !important;
         gap: 20px !important;
       }
       
-      body.desktop-mode #view-company.active {
+      body.desktop-mode:has(#view-dashboard.active) #view-company,
+      body.desktop-mode:has(#view-company.active) #view-company {
         display: grid !important;
         grid-template-columns: 380px 1fr !important;
         gap: 24px !important;
         align-items: start !important;
       }
-      body.desktop-mode #view-company.active > .card:first-of-type {
+      
+      body.desktop-mode #view-company.active > .card:first-of-type,
+      body.desktop-mode:has(#view-company.active) #view-company > .card:first-of-type {
         grid-column: 1 !important;
         grid-row: 1 / span 2 !important;
         margin: 0 !important;
       }
-      body.desktop-mode #view-company.active > .segmented-control {
+      
+      body.desktop-mode #view-company.active > .segmented-control,
+      body.desktop-mode:has(#view-company.active) #view-company > .segmented-control {
         grid-column: 2 !important;
         grid-row: 1 !important;
         margin: 0 !important;
       }
-      body.desktop-mode #view-company.active > .card:last-of-type {
+      
+      body.desktop-mode #view-company.active > .card:last-of-type,
+      body.desktop-mode:has(#view-company.active) #view-company > .card:last-of-type {
         grid-column: 2 !important;
         grid-row: 2 !important;
         margin: 0 !important;
       }
       
+      body.desktop-mode #view-dashboard .stats-grid {
+        grid-template-columns: 1fr !important;
+        gap: 12px !important;
+        width: 100% !important;
+      }
+      body.desktop-mode #view-dashboard .stat-item.full-width {
+        grid-column: auto !important;
+      }
+      
+      body.desktop-mode #view-reports.active {
+        display: grid !important;
+        grid-template-columns: 1.2fr 1fr !important;
+        gap: 30px !important;
+        align-items: start !important;
+      }
+      
       body.desktop-mode #view-admin.active {
         display: grid !important;
-        grid-template-columns: 1fr !important;
-        gap: 20px !important;
+        grid-template-columns: 1.2fr 1fr !important;
+        gap: 30px !important;
+        align-items: start !important;
       }
+      
+      body.desktop-mode #back-btn {
+        display: none !important;
+      }
+      body.desktop-mode #header-title-container {
+        display: block !important;
+      }
+    }
+    
+    #company-placeholder {
+      display: none;
+    }
+    body.desktop-mode #view-company:not(.company-selected) > .card,
+    body.desktop-mode #view-company:not(.company-selected) > .segmented-control {
+      display: none !important;
+    }
+    body.desktop-mode #view-company:not(.company-selected) #company-placeholder {
+      display: flex !important;
+    }
+    body.desktop-mode #view-company.company-selected #company-placeholder {
+      display: none !important;
+    }
+    
+    #view-reports .report-info-card {
+      display: none;
+    }
+    body.desktop-mode #view-reports .report-info-card {
+      display: flex !important;
+    }
+    
+    #view-admin .admin-info-card {
+      display: none;
+    }
+    body.desktop-mode #view-admin .admin-info-card {
+      display: flex !important;
     }
   </style>
 </head>
@@ -924,8 +1016,9 @@
       </div>
     </header>
 
-    <!-- ─────────────────────────── ЭКРАН 1: ДАШБОРД ─────────────────────────── -->
-    <div id="view-dashboard" class="view active">
+    <div class="views-container">
+      <!-- ─────────────────────────── ЭКРАН 1: ДАШБОРД ─────────────────────────── -->
+      <div id="view-dashboard" class="view active">
       <!-- Сводная статистика -->
       <div class="stats-grid">
         <div class="stat-item full-width">
@@ -964,6 +1057,13 @@
 
     <!-- ─────────────────────────── ЭКРАН 2: ДЕТАЛИ КОМПАНИИ ─────────────────────────── -->
     <div id="view-company" class="view">
+      <!-- Заглушка, когда компания не выбрана (только для десктопа) -->
+      <div id="company-placeholder" class="card placeholder-card" style="display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 80px 40px; text-align: center; height: 100%; border: 2px dashed var(--card-border); background: transparent;">
+        <div style="font-size: 60px; margin-bottom: 20px; filter: grayscale(0.2);">🏢</div>
+        <div style="font-family: var(--font-display); font-size: 22px; font-weight: 700; color: var(--text-color); margin-bottom: 12px;">Выберите компанию</div>
+        <div style="font-size: 14px; color: var(--text-secondary); max-width: 320px; line-height: 1.6;">Выберите клиента из списка слева, чтобы просмотреть его контакты, текущие и будущие заявки.</div>
+      </div>
+      
       <!-- Блок информации о компании -->
       <div class="card">
         <div class="card-title" id="company-detail-name">Название компании</div>
@@ -1062,6 +1162,37 @@
           </button>
         </div>
       </div>
+      
+      <!-- Правая панель для десктопа: Инструкции и превью аналитики -->
+      <div class="card report-info-card" style="display: flex; flex-direction: column; gap: 20px;">
+        <div class="card-title">📊 Аналитический модуль</div>
+        <div style="font-size: 14px; line-height: 1.6; color: var(--text-secondary);">
+          Экспортируйте детальную аналитику по вашим компаниям-клиентам напрямую в формат <b>Microsoft Excel (.xlsx)</b>.
+        </div>
+        <div class="stats-grid" style="grid-template-columns: 1fr !important; gap: 12px; margin: 10px 0; width: 100% !important;">
+          <div class="stat-item" style="padding: 12px; background: rgba(0,0,0,0.02); border: 1px solid var(--card-border);">
+            <span class="label" style="font-size: 11px;">СТАТУС ИНТЕГРАЦИИ CRM</span>
+            <span style="font-size: 14px; font-weight:700; color: var(--status-win); display:flex; align-items:center; gap: 6px; margin-top: 4px;">
+              🟢 Активна и синхронизирована
+            </span>
+          </div>
+          <div class="stat-item" style="padding: 12px; background: rgba(0,0,0,0.02); border: 1px solid var(--card-border);">
+            <span class="label" style="font-size: 11px;">СИНХРОНИЗАЦИЯ С БИТРИКС24</span>
+            <span style="font-size: 13px; color: var(--text-color); margin-top: 4px; display: block;">
+              Все изменения по сделкам и компаниям автоматически дублируются в воронку Битрикс24 в реальном времени.
+            </span>
+          </div>
+        </div>
+        <div style="border-top: 1px solid var(--card-border); padding-top: 16px;">
+          <div style="font-family: var(--font-display); font-size:14px; font-weight:700; color: var(--text-color); margin-bottom: 8px;">📑 Содержимое Excel-файла:</div>
+          <ul style="font-size: 13px; color: var(--text-secondary); padding-left: 20px; line-height: 1.8; margin: 0;">
+            <li>Полный список распределения заявок по датам и времени.</li>
+            <li>Данные о плановом количестве исполнителей и ставках оплаты.</li>
+            <li>Фактические статусы выполнения каждой заявки.</li>
+            <li>Детальный расчет сумм выплат по каждому клиенту.</li>
+          </ul>
+        </div>
+      </div>
     </div>
 
     <!-- ─────────────────────────── ЭКРАН 4: АДМИНКА ─────────────────────────── -->
@@ -1076,7 +1207,29 @@
           <!-- Список менеджеров -->
         </div>
       </div>
+      
+      <!-- Правая панель для десктопа: Управление правами -->
+      <div class="card admin-info-card" style="display: flex; flex-direction: column; gap: 20px;">
+        <div class="card-title">🔐 Управление персоналом</div>
+        <div style="font-size: 14px; line-height: 1.6; color: var(--text-secondary);">
+          Здесь вы можете настраивать права сотрудников для работы с вашей CRM-системой.
+        </div>
+        <div style="border-top: 1px solid var(--card-border); padding-top: 16px;">
+          <div style="font-family: var(--font-display); font-size:14px; font-weight:700; color: var(--text-color); margin-bottom: 10px;">📋 Роли и полномочия:</div>
+          <div style="display:flex; flex-direction:column; gap:12px;">
+            <div style="padding: 10px; background: rgba(0,0,0,0.02); border: 1px solid var(--card-border); border-radius:8px;">
+              <strong style="color: var(--text-color); font-size: 13px;">👑 Администратор</strong>
+              <div style="font-size:12px; color:var(--text-secondary); margin-top:2px;">Имеет полный доступ ко всем функциям системы, может просматривать и скачивать общие отчеты, а также добавлять и отключать других сотрудников.</div>
+            </div>
+            <div style="padding: 10px; background: rgba(0,0,0,0.02); border: 1px solid var(--card-border); border-radius:8px;">
+              <strong style="color: var(--text-color); font-size: 13px;">🟢 Активный Менеджер</strong>
+              <div style="font-size:12px; color:var(--text-secondary); margin-top:2px;">Может работать с закрепленными за ним компаниями, заводить и закрывать заявки в CRM и просматривать свои отчеты.</div>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
+  </div><!-- views-container -->
 
     <!-- ─────────────────────────── BOTTOM SHEET: ДЕТАЛИ ЗАЯВКИ ─────────────────────────── -->
     <div id="deal-sheet-overlay" class="sheet-overlay">
@@ -1576,6 +1729,9 @@
       if (historyStack.length > 1) {
         historyStack.pop(); // Удаляем текущий экран
         const prevView = historyStack[historyStack.length - 1];
+        if (prevView === 'dashboard') {
+          document.getElementById('view-company').classList.remove('company-selected');
+        }
         navigateTo(prevView, false);
       }
     }
@@ -1698,6 +1854,7 @@
       try {
         const data = await apiRequest(`/api/companies/${cid}`);
         state.activeCompany = data.company;
+        document.getElementById('view-company').classList.add('company-selected');
         
         document.getElementById('company-detail-name').textContent = state.activeCompany.name;
         document.getElementById('company-detail-phone').innerHTML = state.activeCompany.phone ? `<a href="tel:${state.activeCompany.phone}" style="color:var(--accent-color); text-decoration:none;">${state.activeCompany.phone}</a>` : '—';
