@@ -34,11 +34,12 @@ logging.basicConfig(level=logging.INFO)
 pool = None  # Глобальный пул БД
 
 # Статусы
-ST_ACCEPTED = "Принято"
+ST_ACCEPTED = "Поступило"
 ST_WORK = "В работе"
-ST_WIN = "Удачная сделка"
-ST_LOSS = "Неудачная сделка"
-STATUS_FLOW = [ST_ACCEPTED, ST_WORK, ST_WIN]
+ST_REOPEN = "Вернулся в работу"
+ST_WIN = "Успешно"
+ST_LOSS = "Провалено"
+STATUS_FLOW = [ST_ACCEPTED, ST_WORK, ST_REOPEN, ST_WIN]
 
 PERIODS = {
     "today": ("Сегодня", 0),
@@ -85,6 +86,12 @@ async def init_db():
             await conn.execute("ALTER TABLE orders ADD COLUMN IF NOT EXISTS bitrix_id INTEGER")
         except Exception:
             pass
+        try:
+            await conn.execute("UPDATE orders SET status='Поступило' WHERE status='Принято'")
+            await conn.execute("UPDATE orders SET status='Успешно' WHERE status='Удачная сделка'")
+            await conn.execute("UPDATE orders SET status='Провалено' WHERE status='Неудачная сделка'")
+        except Exception:
+            pass
         
         for tid in ADMIN_IDS:
             await conn.execute("""INSERT INTO managers(telegram_id, name, role, active, created_at)
@@ -128,10 +135,10 @@ def fmt_date(iso):
     except Exception: return iso or "—"
 
 def money(v): return f"{float(v or 0):,.0f}".replace(",", " ")
-def status_emoji(st): return {ST_ACCEPTED: "🟡", ST_WORK: "🔵", ST_WIN: "✅", ST_LOSS: "❌"}.get(st, "⚪")
+def status_emoji(st): return {ST_ACCEPTED: "🟡", ST_WORK: "🔵", ST_REOPEN: "↩️", ST_WIN: "✅", ST_LOSS: "❌"}.get(st, "⚪")
 
 def status_bar(st):
-    if st == ST_LOSS: return "❌ <b>Неудачная сделка</b>"
+    if st == ST_LOSS: return "❌ <b>Провалено</b>"
     parts = []
     cur = STATUS_FLOW.index(st) if st in STATUS_FLOW else 0
     for i, s in enumerate(STATUS_FLOW):
@@ -241,7 +248,7 @@ async def sync_deal_to_bitrix(deal_id: int):
         else:
             mgr_name = "Неизвестно"
         
-        stage_map = {ST_ACCEPTED: "NEW", ST_WORK: "PREPARATION", ST_WIN: "WON", ST_LOSS: "LOSE"}
+        stage_map = {ST_ACCEPTED: "NEW", ST_WORK: "PREPARATION", ST_REOPEN: "PREPAYMENT_INVOICE", ST_WIN: "WON", ST_LOSS: "LOSE"}
         stage_id = stage_map.get(deal["status"], "NEW")
         
         comments = f"""
@@ -569,7 +576,7 @@ async def render_deal(o, u):
     if o["status"] == ST_WIN: txt += (f"\n🏁 <b>Факт вышло: {o['final_workers'] or 0}</b>\n<b>Сумма оплаты: {money(o['final_amount'])}</b>\n")
     st_rows = []
     if o["status"] == ST_ACCEPTED: st_rows = [[btn("▶️ В работу", f"deal:st:{o['id']}:work"), btn("❌ Неудачная", f"deal:st:{o['id']}:loss")]]
-    elif o["status"] == ST_WORK: st_rows = [[btn("✅ Завершить (удачно)", f"deal:st:{o['id']}:win")], [btn("❌ Неудачная", f"deal:st:{o['id']}:loss")]]
+    elif o["status"] in (ST_WORK, ST_REOPEN): st_rows = [[btn("✅ Завершить (удачно)", f"deal:st:{o['id']}:win")], [btn("❌ Неудачная", f"deal:st:{o['id']}:loss")]]
     elif o["status"] in (ST_WIN, ST_LOSS): st_rows = [[btn("↩️ Вернуть в работу", f"deal:st:{o['id']}:reopen")]]
     rows = list(st_rows)
     if can_edit_deal(u, o): rows.append([btn("✏️ Редактировать", f"deal:edit:{o['id']}"), btn("🗑 Удалить", f"deal:rm:{o['id']}")])
@@ -589,7 +596,7 @@ async def deal_status(cq: CallbackQuery, state: FSMContext):
     if not can_access_deal(u, o): return await cq.answer("Нет доступа")
     if action == "win":
         await state.clear(); await state.update_data(deal_id=did); await state.set_state(CompleteForm.final_workers); await cq.message.answer("🏁 Сколько работников вышло?"); return await cq.answer()
-    new = {"work": ST_WORK, "loss": ST_LOSS, "reopen": ST_WORK}[action]
+    new = {"work": ST_WORK, "loss": ST_LOSS, "reopen": ST_REOPEN}[action]
     async with pool.acquire() as conn: await conn.execute("UPDATE orders SET status=$1 WHERE id=$2", new, did)
     asyncio.create_task(sync_deal_to_bitrix(did))
     await cq.answer("Статус обновлён"); text, markup = await render_deal(await get_deal(did), u); await safe_edit(cq, text, markup)
