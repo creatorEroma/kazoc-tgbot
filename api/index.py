@@ -58,8 +58,12 @@ async def init_db():
         pool = await asyncpg.create_pool(DATABASE_URL, statement_cache_size=0)
     async with pool.acquire() as conn:
         await conn.execute("""CREATE TABLE IF NOT EXISTS managers(id SERIAL PRIMARY KEY, telegram_id BIGINT UNIQUE NOT NULL, name TEXT, username TEXT, role TEXT DEFAULT 'manager', active INTEGER DEFAULT 1, created_at TEXT)""")
-        await conn.execute("""CREATE TABLE IF NOT EXISTS companies(id SERIAL PRIMARY KEY, manager_id INTEGER NOT NULL, name TEXT NOT NULL, phone TEXT, address TEXT, contact TEXT, notes TEXT, created_at TEXT)""")
+        await conn.execute("""CREATE TABLE IF NOT EXISTS companies(id SERIAL PRIMARY KEY, manager_id INTEGER NOT NULL, name TEXT NOT NULL, phone TEXT, address TEXT, contact TEXT, notes TEXT, bitrix_id INTEGER, created_at TEXT)""")
         await conn.execute("""CREATE TABLE IF NOT EXISTS orders(id SERIAL PRIMARY KEY, company_id INTEGER NOT NULL, manager_id INTEGER NOT NULL, period_type TEXT DEFAULT 'current', city TEXT, work_date TEXT, deadline TEXT, hours REAL DEFAULT 0, position TEXT, planned_count INTEGER DEFAULT 0, work_type TEXT, rate REAL DEFAULT 0, client_pay REAL DEFAULT 0, worker_pay REAL DEFAULT 0, company_get REAL DEFAULT 0, worker_names TEXT, status TEXT DEFAULT 'Принято', final_workers INTEGER DEFAULT 0, final_amount REAL DEFAULT 0, notes TEXT, bitrix_id INTEGER, created_at TEXT)""")
+        try:
+            await conn.execute("ALTER TABLE companies ADD COLUMN IF NOT EXISTS bitrix_id INTEGER")
+        except Exception:
+            pass
         try:
             await conn.execute("ALTER TABLE orders ADD COLUMN IF NOT EXISTS bitrix_id INTEGER")
         except Exception:
@@ -76,6 +80,39 @@ def is_admin(u): return bool(u) and u["role"] == "admin" and u["active"] == 1
 # ───────────────────────────── BITRIX24 INTEGRATION ───────────────────
 BITRIX_URL = os.environ.get("BITRIX_URL", "https://b24-zjchkj.bitrix24.kz/rest/1/jaf58v0tf4ioi6kx/")
 
+async def sync_company_to_bitrix(company_id: int) -> int:
+    import httpx
+    try:
+        company = await get_company(company_id)
+        if not company: return None
+        
+        payload = {
+            "fields": {
+                "TITLE": company["name"],
+                "PHONE": [{"VALUE": company["phone"], "VALUE_TYPE": "WORK"}] if company["phone"] else [],
+                "ADDRESS": company["address"] if company["address"] else "",
+                "COMMENTS": f"Контактное лицо: {esc(company['contact'])}<br/>Заметки: {esc(company['notes'])}"
+            }
+        }
+        
+        async with httpx.AsyncClient() as client:
+            if company.get("bitrix_id"):
+                payload["id"] = company["bitrix_id"]
+                await client.post(f"{BITRIX_URL}crm.company.update.json", json=payload)
+                return company["bitrix_id"]
+            else:
+                res = await client.post(f"{BITRIX_URL}crm.company.add.json", json=payload)
+                if res.status_code == 200:
+                    rdata = res.json()
+                    if "result" in rdata:
+                        bid = int(rdata["result"])
+                        async with pool.acquire() as conn:
+                            await conn.execute("UPDATE companies SET bitrix_id=$1 WHERE id=$2", bid, company_id)
+                        return bid
+    except Exception as e:
+        logging.error(f"Bitrix24 company sync error: {e}")
+    return None
+
 async def sync_deal_to_bitrix(deal_id: int):
     import httpx
     try:
@@ -84,44 +121,55 @@ async def sync_deal_to_bitrix(deal_id: int):
         company = await get_company(deal["company_id"])
         co_name = company["name"] if company else "Неизвестно"
         
+        co_bitrix_id = await sync_company_to_bitrix(deal["company_id"])
+        
         async with pool.acquire() as conn:
-            mgr = await conn.fetchrow("SELECT name FROM managers WHERE id=$1", deal["manager_id"])
-        mgr_name = mgr["name"] if mgr else "Неизвестно"
+            mgr = await conn.fetchrow("SELECT name, role FROM managers WHERE id=$1", deal["manager_id"])
+        if mgr:
+            role_label = "Руководитель" if mgr["role"] == "admin" else "Менеджер"
+            mgr_name = f"{mgr['name']} ({role_label})"
+        else:
+            mgr_name = "Неизвестно"
         
         stage_map = {ST_ACCEPTED: "NEW", ST_WORK: "PREPARATION", ST_WIN: "WON", ST_LOSS: "LOSE"}
         stage_id = stage_map.get(deal["status"], "NEW")
         
         comments = f"""
-        <b>Канал:</b> KazOC CRM<br>
-        <b>Компания:</b> {esc(co_name)}<br>
-        <b>Позиция:</b> {esc(deal['position'])}<br>
-        <b>Дата смены:</b> {fmt_date(deal['work_date'])}<br>
-        <b>Время/Срок:</b> {esc(deal['deadline'])}<br>
-        <b>План работников:</b> {deal['planned_count']} чел<br>
-        <b>Ставка/час:</b> {deal['rate']} ₸<br>
-        <b>Платят за смену (клиент):</b> {deal['client_pay']} ₸<br>
-        <b>Каждому рабочему:</b> {deal['worker_pay']} ₸<br>
-        <b>Получает компания:</b> {deal['company_get']} ₸<br>
-        <b>Назначенные рабочие:</b> {esc(deal['worker_names'])}<br>
-        <b>Менеджер:</b> {esc(mgr_name)}<br>
+        <b>Канал:</b> KazOC CRM<br/>
+        <b>Компания:</b> {esc(co_name)}<br/>
+        <b>Менеджер:</b> {esc(mgr_name)}<br/>
+        <b>Город:</b> {esc(deal['city'])}<br/>
+        <b>Дата смены:</b> {fmt_date(deal['work_date'])}<br/>
+        <b>Время/Срок:</b> {esc(deal['deadline'])}<br/>
+        <b>Часы работы:</b> {deal['hours'] or 0}ч<br/>
+        <b>Позиция:</b> {esc(deal['position'])}<br/>
+        <b>Тип работы:</b> {esc(deal['work_type'])}<br/>
+        <b>Количество (план):</b> {deal['planned_count']} чел<br/>
+        <b>Ставка:</b> {deal['rate']} ₸<br/>
+        <b>Клиент платит:</b> {deal['client_pay']} ₸<br/>
+        <b>Выплата рабочему:</b> {deal['worker_pay']} ₸<br/>
+        <b>Компания получает:</b> {deal['company_get']} ₸<br/>
+        <b>Рабочие:</b> {esc(deal['worker_names'])}<br/>
         """
         if deal["status"] == ST_WIN:
             comments += f"""
-            <br><b>🏁 Результаты закрытия:</b><br>
-            <b>Фактически вышло рабочих:</b> {deal['final_workers']} чел<br>
-            <b>Фактическая сумма оплаты:</b> {deal['final_amount']} ₸<br>
+            <br/><b>🏁 Результаты закрытия:</b><br/>
+            <b>Фактически вышло рабочих:</b> {deal['final_workers']} чел<br/>
+            <b>Фактическая сумма оплаты:</b> {deal['final_amount']} ₸<br/>
             """
         
         payload = {
             "fields": {
-                "TITLE": f"[KazOC] {esc(deal['position'])} - {esc(co_name)}",
+                "TITLE": f"[KazOC] {esc(deal['position'])} - {esc(co_name)} | {esc(mgr_name)}",
                 "STAGE_ID": stage_id,
                 "OPPORTUNITY": deal["final_amount"] if deal["status"] == ST_WIN else deal["client_pay"],
                 "CURRENCY_ID": "KZT",
                 "COMMENTS": comments
             }
         }
-        
+        if co_bitrix_id:
+            payload["fields"]["COMPANY_ID"] = co_bitrix_id
+            
         async with httpx.AsyncClient() as client:
             if deal.get("bitrix_id"):
                 payload["id"] = deal["bitrix_id"]
@@ -314,6 +362,7 @@ async def co_save(m: Message, state: FSMContext):
             await conn.execute("UPDATE companies SET name=$1, phone=$2, address=$3, contact=$4, notes=$5 WHERE id=$6", d["name"], clean(d["phone"]), clean(d["address"]), clean(d["contact"]), clean(m.text.strip()), d["edit_id"]); cid = d["edit_id"]
         else:
             cid = await conn.fetchval("INSERT INTO companies(manager_id, name, phone, address, contact, notes, created_at) VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING id", u["id"], d["name"], clean(d["phone"]), clean(d["address"]), clean(d["contact"]), clean(m.text.strip()), datetime.now().isoformat())
+    asyncio.create_task(sync_company_to_bitrix(cid))
     await state.clear(); await m.answer("✅ Сохранено.", reply_markup=kb([[btn("🔎 Открыть", f"co:view:{cid}")], [btn("🏠 Меню", "menu:main")]]))
 
 @dp.callback_query(F.data.startswith("co:list:"))
@@ -351,8 +400,15 @@ async def co_del(cq: CallbackQuery):
     await safe_edit(cq, f"⚠️ Удалить «{esc(c['name'])}» и ВСЕ заявки?", kb([[btn("❌ Да, удалить", f"co:delok:{cid}")], [btn("Отмена", f"co:view:{cid}")]])); await cq.answer()
 @dp.callback_query(F.data.startswith("co:delok:"))
 async def co_delok(cq: CallbackQuery):
+    import httpx
     u = await get_user(cq.from_user.id); cid = int(cq.data.split(":")[2]); c = await get_company(cid)
     if not can_access_company(u, c): return await cq.answer("Нет доступа")
+    if c.get("bitrix_id"):
+        try:
+            async with httpx.AsyncClient() as client:
+                await client.post(f"{BITRIX_URL}crm.company.delete.json", json={"id": c["bitrix_id"]})
+        except Exception:
+            pass
     async with pool.acquire() as conn: await conn.execute("DELETE FROM orders WHERE company_id=$1", cid); await conn.execute("DELETE FROM companies WHERE id=$1", cid)
     await safe_edit(cq, "🗑 Удалено.", kb([[btn("📋 К списку", "co:list:0")]])); await cq.answer()
 
@@ -742,6 +798,7 @@ async def api_create_company(payload: CompanyPayload, u = Depends(get_current_us
             u["id"], payload.name, payload.phone, payload.address, payload.contact, payload.notes, datetime.now().isoformat()
         )
     c = await get_company(cid)
+    asyncio.create_task(sync_company_to_bitrix(cid))
     return {"status": "ok", "company": dict(c)}
 
 @app.put("/api/companies/{id}")
@@ -755,13 +812,21 @@ async def api_update_company(id: int, payload: CompanyPayload, u = Depends(get_c
             payload.name, payload.phone, payload.address, payload.contact, payload.notes, id
         )
     updated = await get_company(id)
+    asyncio.create_task(sync_company_to_bitrix(id))
     return {"status": "ok", "company": dict(updated)}
 
 @app.delete("/api/companies/{id}")
 async def api_delete_company(id: int, u = Depends(get_current_user)):
+    import httpx
     c = await get_company(id)
     if not c or not can_access_company(u, c):
         raise HTTPException(status_code=403, detail="Нет доступа")
+    if c.get("bitrix_id"):
+        try:
+            async with httpx.AsyncClient() as client:
+                await client.post(f"{BITRIX_URL}crm.company.delete.json", json={"id": c["bitrix_id"]})
+        except Exception:
+            pass
     async with pool.acquire() as conn:
         await conn.execute("DELETE FROM orders WHERE company_id=$1", id)
         await conn.execute("DELETE FROM companies WHERE id=$1", id)
