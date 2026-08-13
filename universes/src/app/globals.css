@@ -1,0 +1,132 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  /* Молочно-бежевая тема. Все цвета — тройки RGB, чтобы работали
+     tailwind-модификаторы прозрачности вида bg-surface/60. */
+  :root {
+    --c-bg: 247 241 232;
+    --c-surface: 255 252 247;
+    --c-raised: 241 232 219;
+    --c-line: 229 217 200;
+    --c-ink: 58 50 43;
+    --c-muted: 141 128 115;
+    --c-rose: 180 112 126;
+    --c-sage: 111 127 102;
+  }
+
+  .dark {
+    --c-bg: 30 26 23;
+    --c-surface: 38 32 25;
+    --c-raised: 47 40 32;
+    --c-line: 59 50 39;
+    --c-ink: 241 232 220;
+    --c-muted: 169 155 139;
+    --c-rose: 216 154 164;
+    --c-sage: 157 176 143;
+  }
+
+  html {
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  body {
+    @apply bg-bg text-ink font-sans antialiased;
+    font-feature-settings: 'liga' 1, 'kern' 1;
+  }
+
+  ::selection {
+    background: rgb(var(--c-rose) / 0.22);
+  }
+
+  /* Тонкий скроллбар — чтобы длинные ленты не выглядели грубо. */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: rgb(var(--c-line)) transparent;
+  }
+
+  *::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+
+  *::-webkit-scrollbar-thumb {
+    background: rgb(var(--c-line));
+    border-radius: 999px;
+    border: 3px solid transparent;
+    background-clip: content-box;
+  }
+
+  *::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  :focus-visible {
+    outline: 2px solid rgb(var(--c-rose));
+    outline-offset: 3px;
+  }
+
+  input,
+  textarea {
+    @apply bg-transparent;
+  }
+
+  input::placeholder,
+  textarea::placeholder {
+    @apply text-muted/70;
+  }
+}
+
+@layer components {
+  .card {
+    @apply rounded-card border border-line bg-surface shadow-soft;
+  }
+
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-full px-4 py-2
+           text-sm font-semibold transition
+           active:translate-y-px disabled:pointer-events-none disabled:opacity-50;
+  }
+
+  .btn-primary {
+    @apply btn bg-rose text-surface hover:opacity-90;
+  }
+
+  .btn-ghost {
+    @apply btn border border-line bg-surface text-ink hover:bg-raised;
+  }
+
+  .btn-quiet {
+    @apply btn text-muted hover:bg-raised hover:text-ink;
+  }
+
+  .field {
+    @apply w-full rounded-soft border border-line bg-surface px-3.5 py-2.5 text-[15px]
+           text-ink transition placeholder:text-muted/70
+           focus:border-rose/60 focus:outline-none;
+  }
+
+  .label {
+    @apply mb-1.5 block text-[13px] font-medium text-muted;
+  }
+
+  .chip {
+    @apply inline-flex items-center gap-1.5 rounded-full border border-line
+           bg-raised/60 px-2.5 py-1 text-xs text-muted;
+  }
+
+  .skeleton {
+    @apply animate-pulse-soft rounded-soft bg-raised;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
